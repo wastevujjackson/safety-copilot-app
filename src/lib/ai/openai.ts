@@ -32,6 +32,7 @@ export interface SDSExtractionResult {
     welLongTerm?: string;
     welShortTerm?: string;
     source: string;
+    notes?: string;
   }>;
   firstAid?: string;
   storageRequirements?: string;

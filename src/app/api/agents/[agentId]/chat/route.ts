@@ -13,6 +13,9 @@ import {
   getSystemPromptForStep,
   isStepComplete,
 } from '@/lib/agents/coshh-workflow';
+import {
+  getSubstancesRequiringSurveillance,
+} from '@/lib/coshh/health-surveillance-requirements';
 
 // Store workflow state in memory (in production, use Redis or database)
 const workflowStates = new Map<string, WorkflowState>();
@@ -21,42 +24,53 @@ const workflowStates = new Map<string, WorkflowState>();
 const USE_DUMMY_DATA = true;
 
 // Dummy SDS data for testing (matches SDSExtractionResult type)
+// Using Toluene Diisocyanate (TDI) - requires mandatory health surveillance
 const DUMMY_SDS_DATA: SDSExtractionResult = {
-  chemicalName: 'Acetone',
-  casNumber: '67-64-1',
-  supplier: 'Test Chemical Supplies Ltd',
-  productCode: 'AC-1000',
+  chemicalName: 'Toluene Diisocyanate (TDI)',
+  casNumber: '584-84-9',
+  supplier: 'Advanced Chemical Solutions Ltd',
+  productCode: 'TDI-2400',
   hazards: [
-    { type: 'flammable', hazardClass: 'Flam. Liq. 2', pictogram: 'GHS02', signalWord: 'Danger' },
-    { type: 'health-hazard', hazardClass: 'Eye Irrit. 2', pictogram: 'GHS07', signalWord: 'Warning' },
-    { type: 'health-hazard', hazardClass: 'STOT SE 3', pictogram: 'GHS07', signalWord: 'Warning' }
+    { type: 'acute-toxicity', hazardClass: 'Acute Tox. 3', pictogram: 'GHS06', signalWord: 'Danger' },
+    { type: 'corrosive', hazardClass: 'Skin Corr. 1B', pictogram: 'GHS05', signalWord: 'Danger' },
+    { type: 'serious-health-hazard', hazardClass: 'Resp. Sens. 1', pictogram: 'GHS08', signalWord: 'Danger' },
+    { type: 'serious-health-hazard', hazardClass: 'Skin Sens. 1', pictogram: 'GHS08', signalWord: 'Danger' },
+    { type: 'serious-health-hazard', hazardClass: 'Carc. 2', pictogram: 'GHS08', signalWord: 'Warning' },
+    { type: 'serious-health-hazard', hazardClass: 'STOT SE 3', pictogram: 'GHS08', signalWord: 'Warning' },
+    { type: 'serious-health-hazard', hazardClass: 'STOT RE 2', pictogram: 'GHS08', signalWord: 'Warning' }
   ],
   physicalProperties: {
-    appearance: 'Clear, colorless liquid',
-    odour: 'Characteristic sweet odour',
+    appearance: 'Clear to pale yellow liquid',
+    odour: 'Sharp, pungent odour',
     pH: 'Not applicable',
-    flashPoint: '-20°C'
+    flashPoint: '127°C (closed cup)'
   },
   exposureLimits: [
     {
-      substance: 'Acetone',
-      welLongTerm: '500 ppm (1210 mg/m³)',
-      welShortTerm: '1500 ppm (3620 mg/m³)',
-      source: 'EH40/2005'
+      substance: 'Toluene diisocyanate (TDI)',
+      welLongTerm: '0.02 mg/m³ (8-hr TWA)',
+      welShortTerm: '0.07 mg/m³ (15-min STEL)',
+      source: 'EH40/2005',
+      notes: 'Sen - Respiratory sensitiser'
     }
   ],
-  firstAid: 'Inhalation: Remove to fresh air. If breathing is difficult, give oxygen. Get medical attention.\n\nSkin Contact: Wash off immediately with plenty of water. Remove contaminated clothing. Get medical attention if irritation develops.\n\nEye Contact: Rinse immediately with plenty of water for at least 15 minutes. Get medical attention.\n\nIngestion: Do NOT induce vomiting. Never give anything by mouth to an unconscious person. Get medical attention immediately.',
-  storageRequirements: 'Store in a cool, well-ventilated area away from incompatible substances and ignition sources. Keep container tightly closed. Store away from oxidizing agents. Keep away from heat, sparks, and flame.',
-  disposalGuidance: 'Dispose of in accordance with local regulations. Do not pour into drains or waterways. Consult a licensed waste disposal company.'
+  firstAid: 'Inhalation: Remove victim to fresh air immediately. If breathing is difficult or has stopped, give artificial respiration. Give oxygen if breathing is difficult. Seek immediate medical attention.\n\nSkin Contact: Remove contaminated clothing immediately. Wash skin thoroughly with soap and water for at least 15 minutes. Seek immediate medical attention.\n\nEye Contact: Rinse immediately with plenty of water for at least 15 minutes, lifting eyelids occasionally. Remove contact lenses if present and easy to do. Seek immediate medical attention.\n\nIngestion: Do NOT induce vomiting. Rinse mouth with water. Never give anything by mouth to an unconscious person. Seek immediate medical attention.',
+  storageRequirements: 'Store in original container in a cool, dry, well-ventilated area away from incompatible materials. Keep container tightly closed when not in use. Store away from heat, ignition sources, and direct sunlight. Store away from water and moisture. Keep away from food, drink and animal feedingstuffs.',
+  disposalGuidance: 'Dispose of contents and container in accordance with local, regional, national and international regulations. Do not allow into drains or watercourses. Contact licensed waste disposal company.'
 };
 
 // Dummy P-Phrases (Precautionary Statements)
 const DUMMY_P_PHRASES = [
-  { code: 'P210', description: 'Keep away from heat, hot surfaces, sparks, open flames and other ignition sources. No smoking.', type: 'Prevention' },
-  { code: 'P233', description: 'Keep container tightly closed.', type: 'Prevention' },
-  { code: 'P280', description: 'Wear protective gloves/protective clothing/eye protection/face protection.', type: 'Prevention' },
-  { code: 'P305+P351+P338', description: 'IF IN EYES: Rinse cautiously with water for several minutes. Remove contact lenses, if present and easy to do. Continue rinsing.', type: 'Response' },
-  { code: 'P403+P235', description: 'Store in a well-ventilated place. Keep cool.', type: 'Storage' }
+  { code: 'P201', description: 'Obtain special instructions before use.', type: 'Prevention' },
+  { code: 'P260', description: 'Do not breathe dust/fume/gas/mist/vapours/spray.', type: 'Prevention' },
+  { code: 'P280', description: 'Wear protective gloves/protective clothing/eye protection/face protection/hearing protection.', type: 'Prevention' },
+  { code: 'P284', description: 'In case of inadequate ventilation wear respiratory protection.', type: 'Prevention' },
+  { code: 'P301+P330+P331', description: 'IF SWALLOWED: Rinse mouth. Do NOT induce vomiting.', type: 'Response' },
+  { code: 'P303+P361+P353', description: 'IF ON SKIN (or hair): Take off immediately all contaminated clothing. Rinse skin with water.', type: 'Response' },
+  { code: 'P304+P340', description: 'IF INHALED: Remove person to fresh air and keep comfortable for breathing.', type: 'Response' },
+  { code: 'P342+P311', description: 'If experiencing respiratory symptoms: Call a POISON CENTER/doctor.', type: 'Response' },
+  { code: 'P403+P233', description: 'Store in a well-ventilated place. Keep container tightly closed.', type: 'Storage' },
+  { code: 'P405', description: 'Store locked up.', type: 'Storage' }
 ];
 
 // Dummy firefighting measures
@@ -68,10 +82,189 @@ const DUMMY_FIREFIGHTING = {
 
 // Dummy H-Phrases (not part of SDSExtractionResult but used in preview)
 const DUMMY_H_PHRASES = [
-  { code: 'H225', description: 'Highly flammable liquid and vapour', riskLevel: 'High' as const },
-  { code: 'H319', description: 'Causes serious eye irritation', riskLevel: 'Medium' as const },
-  { code: 'H336', description: 'May cause drowsiness or dizziness', riskLevel: 'Medium' as const }
+  { code: 'H301', description: 'Toxic if swallowed', riskLevel: 'High' as const },
+  { code: 'H314', description: 'Causes severe skin burns and eye damage', riskLevel: 'High' as const },
+  { code: 'H317', description: 'May cause an allergic skin reaction', riskLevel: 'High' as const },
+  { code: 'H334', description: 'May cause allergy or asthma symptoms or breathing difficulties if inhaled', riskLevel: 'High' as const },
+  { code: 'H335', description: 'May cause respiratory irritation', riskLevel: 'Medium' as const },
+  { code: 'H351', description: 'Suspected of causing cancer', riskLevel: 'High' as const },
+  { code: 'H373', description: 'May cause damage to respiratory system through prolonged or repeated exposure', riskLevel: 'High' as const }
 ];
+
+// Dummy Control Measures (organized by category)
+const DUMMY_CONTROL_MEASURES = {
+  riskBeforeControls: {
+    likelihood: 4,
+    severity: 5,
+    score: 20,
+    rating: 'High Risk'
+  },
+  riskAfterControls: {
+    likelihood: 1,
+    severity: 5,
+    score: 5,
+    rating: 'Low Risk'
+  },
+  normalControls: [
+    {
+      code: 'P201',
+      description: 'Obtain and read Safety Data Sheet before use. Ensure COSHH risk assessment is completed',
+      hierarchy: 'administrative',
+      icon: 'document'
+    },
+    {
+      code: 'P260',
+      description: 'Do not breathe vapours/spray. Use Local Exhaust Ventilation (LEV) system',
+      hierarchy: 'engineering',
+      icon: 'ventilation'
+    },
+    {
+      code: 'P280',
+      description: 'Wear nitrile gloves, chemical-resistant coveralls, safety goggles and face shield',
+      hierarchy: 'ppe',
+      icon: 'ppe'
+    },
+    {
+      code: 'P284',
+      description: 'Wear respiratory protection (half-mask with A1P2 filters). RPE must be face-fit tested',
+      hierarchy: 'ppe',
+      icon: 'respirator'
+    },
+    {
+      code: 'LEV_TEST',
+      description: 'Ensure LEV system is examined and tested every 14 months (COSHH Reg 9). Display TExT certificate',
+      hierarchy: 'engineering',
+      icon: 'certificate'
+    },
+    {
+      code: 'SUPERVISION',
+      description: 'Supervisor to conduct daily checks: monitor workers for symptoms, check control measures functioning, verify PPE use',
+      hierarchy: 'administrative',
+      icon: 'supervisor'
+    },
+    {
+      code: 'TRAINING',
+      description: 'Provide training on: hazards, control measures, PPE use, emergency procedures. Refresh annually',
+      hierarchy: 'administrative',
+      icon: 'training'
+    }
+  ],
+  storageControls: [
+    {
+      code: 'P405',
+      description: 'Store locked up in designated chemical storage area with restricted access',
+      hierarchy: 'administrative',
+      icon: 'lock'
+    },
+    {
+      code: 'P403',
+      description: 'Store in well-ventilated area. Keep container tightly closed when not in use',
+      hierarchy: 'administrative',
+      icon: 'storage'
+    },
+    {
+      code: 'P410',
+      description: 'Protect from sunlight. Store away from heat sources and ignition sources',
+      hierarchy: 'administrative',
+      icon: 'temperature'
+    }
+  ],
+  handlingControls: [
+    {
+      code: 'P264',
+      description: 'Wash hands and exposed skin thoroughly after handling. Use dedicated washing facilities',
+      hierarchy: 'administrative',
+      icon: 'wash-hands'
+    },
+    {
+      code: 'P273',
+      description: 'Avoid release to environment. Use bunded areas. Prevent entry to drains/watercourses',
+      hierarchy: 'administrative',
+      icon: 'environment'
+    },
+    {
+      code: 'P271',
+      description: 'Use only outdoors or in well-ventilated area. Do not use in confined spaces',
+      hierarchy: 'administrative',
+      icon: 'outdoor'
+    }
+  ],
+  disposalControls: [
+    {
+      code: 'P501',
+      description: 'Dispose of contents/container via licensed waste contractor. Keep waste transfer notes',
+      hierarchy: 'administrative',
+      icon: 'disposal'
+    }
+  ],
+  firstAidControls: [
+    {
+      code: 'P301+P330+P331',
+      description: 'IF SWALLOWED: Rinse mouth. Do NOT induce vomiting. Call emergency services immediately',
+      hierarchy: 'administrative',
+      icon: 'first-aid',
+      category: 'first-aid'
+    },
+    {
+      code: 'P303+P361+P353',
+      description: 'IF ON SKIN: Remove contaminated clothing immediately. Rinse with water for 15 minutes. Use emergency shower',
+      hierarchy: 'administrative',
+      icon: 'first-aid',
+      category: 'first-aid'
+    },
+    {
+      code: 'P304+P340',
+      description: 'IF INHALED: Remove to fresh air. Keep at rest. If breathing difficult, give oxygen',
+      hierarchy: 'administrative',
+      icon: 'first-aid',
+      category: 'first-aid'
+    },
+    {
+      code: 'P305+P351+P338',
+      description: 'IF IN EYES: Rinse cautiously with water for 15 minutes. Remove contact lenses if present. Use eye wash station',
+      hierarchy: 'administrative',
+      icon: 'first-aid',
+      category: 'first-aid'
+    },
+    {
+      code: 'P342+P311',
+      description: 'If experiencing respiratory symptoms (wheeze, cough, breathlessness): Call emergency services/occupational health',
+      hierarchy: 'administrative',
+      icon: 'first-aid',
+      category: 'first-aid'
+    }
+  ],
+  spillControls: [
+    {
+      code: 'SPILL_RESPONSE',
+      description: 'Evacuate area and establish exclusion zone. Eliminate ignition sources',
+      hierarchy: 'administrative',
+      icon: 'spill',
+      category: 'spill'
+    },
+    {
+      code: 'SPILL_PPE',
+      description: 'Don full chemical-resistant PPE and respiratory protection before entering spill area',
+      hierarchy: 'administrative',
+      icon: 'spill',
+      category: 'spill'
+    },
+    {
+      code: 'SPILL_CONTAIN',
+      description: 'Use spill kit to contain and absorb. Prevent entry to drains. Use inert absorbent material',
+      hierarchy: 'administrative',
+      icon: 'spill',
+      category: 'spill'
+    },
+    {
+      code: 'SPILL_DISPOSE',
+      description: 'Place contaminated materials in sealed, labeled container. Dispose as hazardous waste',
+      hierarchy: 'administrative',
+      icon: 'spill',
+      category: 'spill'
+    }
+  ]
+};
 
 export async function POST(
   request: NextRequest,
@@ -379,7 +572,15 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
           state.workerData = { numberOfWorkers: 0, trainingLevel: '', existingPPE: [], healthSurveillance: false };
         }
 
-        if (!state.workerData.whoExposed || state.workerData.whoExposed.length === 0) {
+        // Check if we're waiting for temperature unit from previous step
+        const envData = state.environmentData;
+        if (envData?.temperature && !envData.temperature.match(/[°]?[CFcf]/)) {
+          // User is answering the C/F question from environment step
+          const unit = msgLower.includes('f') || msgLower.includes('fahrenheit') ? '°F' : '°C';
+          envData.temperature = `${envData.temperature}${unit}`;
+          // Don't process as worker data, return to ask first worker question
+          state.workerData.whoExposed = []; // Will trigger the first question below
+        } else if (!state.workerData.whoExposed || state.workerData.whoExposed.length === 0) {
           state.workerData.whoExposed = message.split(',').map(s => s.trim());
         } else if (!state.workerData.numberOfWorkers || state.workerData.numberOfWorkers === 0) {
           state.workerData.numberOfWorkers = parseInt(message) || 0;
@@ -389,6 +590,8 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
           state.workerData.trainingProvided = msgLower.includes('yes');
         } else if (!state.workerData.existingPPE || state.workerData.existingPPE.length === 0) {
           state.workerData.existingPPE = msgLower === 'none' ? [] : message.split(',').map(s => s.trim());
+        } else if ((state.workerData as any).healthScreening === undefined || (state.workerData as any).healthScreening === null) {
+          (state.workerData as any).healthScreening = msgLower.includes('yes');
         } else if (state.workerData.healthSurveillance === undefined || state.workerData.healthSurveillance === null) {
           state.workerData.healthSurveillance = msgLower.includes('yes');
         }
@@ -485,8 +688,10 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
             responseMessage = "**Has specific training been provided for handling this chemical?** (Yes/No)";
           } else if (!state.workerData.existingPPE || state.workerData.existingPPE.length === 0) {
             responseMessage = "**What PPE is currently available or being used?** (e.g., Nitrile gloves, Safety glasses) - or type 'none' if no PPE currently used";
+          } else if ((state.workerData as any).healthScreening === undefined || (state.workerData as any).healthScreening === null) {
+            responseMessage = "**Have workers been screened for pre-existing health conditions that could be aggravated by exposure?** (e.g., respiratory conditions, skin sensitivities, allergies) (Yes/No)";
           } else if (state.workerData.healthSurveillance === undefined || state.workerData.healthSurveillance === null) {
-            responseMessage = "**Is health surveillance currently in place for these workers?** (Yes/No)";
+            responseMessage = "**Is ongoing health surveillance currently in place for these workers?** (Yes/No)";
           } else {
             // All worker data collected, move to next step
             state.completedSteps.push('worker_exposure');
@@ -570,6 +775,7 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
         workflowData.hazardousSubstances = allSds.map(sdsData => ({
           name: sdsData.chemicalName,
           manufacturer: sdsData.supplier,
+          casNumber: sdsData.casNumber,
           hazards: sdsData.hazards?.map(h => h.type),
           hazardPictograms: sdsData.hazards,
           hPhrases: DUMMY_H_PHRASES,
@@ -597,6 +803,7 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
           trainingLevel: state.workerData?.trainingLevel,
           trainingProvided: state.workerData?.trainingProvided,
           existingPPE: state.workerData?.existingPPE,
+          healthScreening: (state.workerData as any)?.healthScreening,
           healthSurveillance: state.workerData?.healthSurveillance,
           // Add SDS safety information (specific to each substance)
           firstAid: sdsData.firstAid,
@@ -605,6 +812,20 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
           // Add other fields
           controlMeasures: state.controlMeasures || [],
         }));
+
+        // Check for mandatory health surveillance requirements
+        const substancesForSurveillance = allSds.map(sds => ({
+          name: sds.chemicalName,
+          casNumber: sds.casNumber,
+        }));
+        const surveillanceRequirements = getSubstancesRequiringSurveillance(substancesForSurveillance);
+
+        if (surveillanceRequirements.length > 0) {
+          workflowData.healthSurveillanceRequirements = surveillanceRequirements;
+        }
+
+        // Add control measures (dummy data for now)
+        workflowData.controlMeasures = DUMMY_CONTROL_MEASURES;
       }
 
       return NextResponse.json({

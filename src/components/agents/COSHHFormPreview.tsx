@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-
 interface HazardousSubstance {
   id?: string;
   name?: string;
@@ -19,6 +17,17 @@ interface HazardousSubstance {
     description: string;
     riskLevel: 'High' | 'Medium' | 'Low';
   }>;
+  pPhrases?: Array<{
+    code: string;
+    description: string;
+    type: string;
+  }>;
+  hazardPictograms?: Array<{
+    type: string;
+    hazardClass: string;
+    pictogram: string;
+    signalWord: string;
+  }>;
   howUsed?: string;
   whoExposed?: string[];
   substanceForm?: string;
@@ -34,44 +43,34 @@ interface HazardousSubstance {
   trainingLevel?: string;
   trainingProvided?: boolean;
   existingPPE?: string[];
+  healthScreening?: boolean;
   healthSurveillance?: boolean;
   workplaceExposureLimitLTEL?: string;
   workplaceExposureLimitSTEL?: string;
-  canEliminate?: boolean;
-  canSubstitute?: boolean;
-  eliminationSubstitutionJustification?: string;
+  firstAid?: string;
+  firefighting?: {
+    extinguishingMedia: string;
+    specialHazards: string;
+    firefightingEquipment: string;
+  };
+  storageRequirements?: string;
   controlMeasures?: any[];
-  ppeItems?: any[];
-  healthSurveillanceItems?: any[];
-  storageRequirementItems?: any[];
-  emergencyProcedureItems?: any[];
-  emergencyContacts?: Array<{
-    id: string;
-    name: string;
-    number: string;
-  }>;
-  methodStatementSteps?: Array<{
-    id: string;
-    stepNumber: number;
-    title: string;
-    description?: string;
-    substeps: Array<{
-      id: string;
-      description: string;
-      linkedExposureRoutes?: string[];
-      linkedActivities?: string[];
-      linkedControlMeasures?: string[];
-      linkedPPEItems?: string[];
-    }>;
-  }>;
-  preControlConsequence?: number;
-  preControlLikelihood?: 'Very Unlikely' | 'Unlikely' | 'Possible' | 'Likely' | 'Very Likely';
-  preControlRiskLevel?: 'Very Low' | 'Low' | 'Medium' | 'High' | 'Very High';
-  postControlConsequence?: number;
-  postControlLikelihood?: 'Very Unlikely' | 'Unlikely' | 'Possible' | 'Likely' | 'Very Likely';
-  residualRiskLevel?: 'Very Low' | 'Low' | 'Medium' | 'High' | 'Very High';
-  dateCreated?: string;
-  reviewDate?: string;
+}
+
+export interface HealthSurveillanceRequirement {
+  substance: string;
+  mandatory: boolean;
+  frequency: string;
+  surveillanceType: string[];
+  legalReference: string;
+  additionalInfo?: string;
+}
+
+export interface ControlMeasure {
+  code: string;
+  description: string;
+  hierarchy: 'elimination' | 'substitution' | 'engineering' | 'administrative' | 'ppe';
+  icon: string;
 }
 
 export interface COSHHFormData {
@@ -84,9 +83,28 @@ export interface COSHHFormData {
   location?: string;
   client?: string;
   assessorName?: string;
-  teamMembers?: Array<{ id: string; name: string; position: string }>;
-  approvals?: Array<{ id: string; name: string; position: string }>;
   hazardousSubstances?: HazardousSubstance[];
+  healthSurveillanceRequirements?: HealthSurveillanceRequirement[];
+  controlMeasures?: {
+    riskBeforeControls?: {
+      likelihood: number;
+      severity: number;
+      score: number;
+      rating: string;
+    };
+    riskAfterControls?: {
+      likelihood: number;
+      severity: number;
+      score: number;
+      rating: string;
+    };
+    normalControls?: ControlMeasure[];
+    storageControls?: ControlMeasure[];
+    handlingControls?: ControlMeasure[];
+    disposalControls?: ControlMeasure[];
+    firstAidControls?: ControlMeasure[];
+    spillControls?: ControlMeasure[];
+  };
 }
 
 interface COSHHFormPreviewProps {
@@ -99,34 +117,19 @@ const formatDate = (dateString: string | undefined) => {
   return date.toLocaleDateString('en-GB', {
     day: '2-digit',
     month: '2-digit',
-    year: 'numeric'
+    year: 'numeric',
   });
 };
 
-const getRiskLevelStyling = (riskLevel: string | undefined) => {
-  const styles: { [key: string]: { color: string; bg: string } } = {
-    'Very Low': { color: '#16a34a', bg: '#dcfce7' },
-    'Low': { color: '#ffffff', bg: '#16a34a' },
-    'Medium': { color: '#854d0e', bg: '#fef08a' },
-    'High': { color: '#ffffff', bg: '#ea580c' },
-    'Very High': { color: '#ffffff', bg: '#dc2626' }
-  };
-  return styles[riskLevel || ''] || { color: '#6b7280', bg: '#f3f4f6' };
-};
-
 export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
+  if (!data) {
     return (
-      <div className="h-full flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="text-2xl mb-2">📋</div>
-          <p className="text-sm text-gray-600">Loading preview...</p>
+      <div className="h-full flex items-center justify-center bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="text-center py-12">
+          <p className="text-sm text-gray-600">No data yet</p>
+          <p className="text-xs text-gray-500 mt-2">
+            Start by uploading an SDS in the chat
+          </p>
         </div>
       </div>
     );
@@ -135,14 +138,17 @@ export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
   const substances = data.hazardousSubstances || [];
   const hasAnyData = data.title || data.assessorName || substances.length > 0;
 
+  // Get shared data from first substance (all substances share this data)
+  const sharedData = substances[0];
+
   return (
-    <div className="h-full overflow-y-auto bg-white border border-gray-200 rounded-lg">
+    <div className="h-full overflow-y-auto bg-gray-50 border border-gray-300 rounded-lg">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-linear-to-r from-cyan-500 to-cyan-400 px-4 py-3 border-b border-cyan-600">
+      <div className="sticky top-0 z-10 bg-cyan-700 px-4 py-3 border-b border-cyan-800">
         <h3 className="text-base font-semibold text-white">
           COSHH Assessment Preview
         </h3>
-        <p className="text-xs text-cyan-50 mt-1">
+        <p className="text-xs text-cyan-100 mt-1">
           Live preview - updates as information is collected
         </p>
       </div>
@@ -151,567 +157,627 @@ export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
       <div className="p-4 space-y-4">
         {!hasAnyData ? (
           <div className="text-center py-12">
-            <div className="text-4xl mb-3">📋</div>
             <h4 className="font-semibold text-gray-900 mb-2">Preview Ready</h4>
             <p className="text-sm text-gray-600 mb-4">
               Upload an SDS file in the chat to see the live preview populate with extracted data
             </p>
             <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded border border-gray-200 max-w-md mx-auto">
-              <p className="font-semibold mb-1">💡 Testing with Dummy Data</p>
+              <p className="font-semibold mb-1">Testing with Dummy Data</p>
               <p>Upload any file (even a blank .txt) and the preview will populate with sample Acetone data to demonstrate the layout</p>
             </div>
           </div>
         ) : (
           <>
-            {/* COSHH Assessment Information Section */}
-            <div className="border-b-4 border-cyan-500 pb-3 mb-4">
-              <div className="bg-linear-to-r from-cyan-500 to-cyan-400 px-3 py-2 rounded-t">
-                <h4 className="text-xs font-bold text-white text-center uppercase tracking-wide">
-                  COSHH Assessment Information
-                </h4>
-              </div>
-              <div className="bg-white p-3 mt-2 space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  {data.title && (
-                    <div className="col-span-2 p-2 bg-gray-50 border-l-4 border-cyan-500 rounded">
-                      <div className="text-xs font-semibold text-gray-700 uppercase">Assessment Title:</div>
-                      <div className="text-sm font-semibold text-gray-900 mt-1">{data.title}</div>
-                    </div>
-                  )}
-                  <div className="p-2 bg-gray-50 border-l-4 border-cyan-500 rounded">
-                    <div className="text-xs font-semibold text-gray-700 uppercase">Reference:</div>
-                    <div className="text-sm text-gray-900 mt-1">{data.assessmentReference || 'Not specified'}</div>
-                  </div>
-                  <div className="p-2 bg-gray-50 border-l-4 border-cyan-500 rounded">
-                    <div className="text-xs font-semibold text-gray-700 uppercase">Date:</div>
-                    <div className="text-sm text-gray-900 mt-1">{formatDate(data.date)}</div>
-                  </div>
-                  {data.client && (
-                    <div className="p-2 bg-gray-50 border-l-4 border-cyan-500 rounded">
-                      <div className="text-xs font-semibold text-gray-700 uppercase">Client:</div>
-                      <div className="text-sm text-gray-900 mt-1">{data.client}</div>
-                    </div>
-                  )}
-                  {data.location && (
-                    <div className="p-2 bg-gray-50 border-l-4 border-cyan-500 rounded">
-                      <div className="text-xs font-semibold text-gray-700 uppercase">Location:</div>
-                      <div className="text-sm text-gray-900 mt-1">{data.location}</div>
-                    </div>
-                  )}
-                  {data.reviewDate && (
-                    <div className="p-2 bg-gray-50 border-l-4 border-cyan-500 rounded">
-                      <div className="text-xs font-semibold text-gray-700 uppercase">Review Date:</div>
-                      <div className="text-sm text-gray-900 mt-1">
-                        <span className="px-2 py-1 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded text-xs font-semibold">
-                          {formatDate(data.reviewDate)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  {data.assessorName && (
-                    <div className="p-2 bg-gray-50 border-l-4 border-cyan-500 rounded">
-                      <div className="text-xs font-semibold text-gray-700 uppercase">Assessor:</div>
-                      <div className="text-sm text-gray-900 mt-1">{data.assessorName}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Hazardous Substances */}
-            {substances.map((substance, substanceIndex) => {
-              const preControl = substance?.preControlRiskLevel ? {
-                level: substance.preControlRiskLevel,
-                ...getRiskLevelStyling(substance.preControlRiskLevel)
-              } : null;
-
-              const postControl = (substance?.residualRiskLevel || substance?.preControlRiskLevel) ? {
-                level: substance?.residualRiskLevel || substance?.preControlRiskLevel!,
-                ...getRiskLevelStyling(substance?.residualRiskLevel || substance?.preControlRiskLevel)
-              } : null;
-
-              return (
-              <div key={substanceIndex} className="space-y-4">
-                {/* Substance Header */}
-                {substances.length > 1 && (
-                  <div className="bg-gradient-to-r from-cyan-600 to-cyan-500 px-3 py-2 rounded">
-                    <h4 className="text-sm font-bold text-white uppercase tracking-wide">
-                      Substance {substanceIndex + 1} of {substances.length}
+            {/* Assessment Title Section */}
+            {substances.length > 0 && (
+              <>
+                <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                  <div className="bg-cyan-700 px-4 py-3 rounded-t-lg">
+                    <h4 className="text-sm font-semibold text-white">
+                      COSHH Assessment for Working with {substances.map(s => s.name).join(', ')}
                     </h4>
                   </div>
-                )}
-              <>
-                <div className="bg-white p-3 border-l-4 border-cyan-500 shadow-sm rounded">
-                  <div className="grid grid-cols-[2fr_1fr] gap-3">
-                    <div>
-                      <h5 className="text-sm font-semibold text-gray-900 mb-2">
-                        {substance.name || 'Chemical Substance'}
-                      </h5>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                        {substance.coshhReference && (
-                          <div>
-                            <span className="font-semibold text-gray-900">Ref:</span> {substance.coshhReference}
-                          </div>
-                        )}
-                        {substance.manufacturer && (
-                          <div>
-                            <span className="font-semibold text-gray-900">Manufacturer:</span> {substance.manufacturer}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Risk Assessment Summary */}
-                    {preControl && postControl && (
-                      <div className="bg-gray-50 p-2 rounded border border-gray-200">
-                        <div className="text-xs font-semibold text-gray-700 mb-2 text-center">RISK ASSESSMENT</div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="text-center">
-                            <div className="text-xs text-gray-600 mb-1">Pre-Control</div>
-                            <div
-                              className="px-2 py-1 rounded text-xs font-semibold border"
-                              style={{ backgroundColor: preControl.bg, color: preControl.color, borderColor: preControl.color }}
-                            >
-                              {preControl.level}
-                            </div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-xs text-gray-600 mb-1">Post-Control</div>
-                            <div
-                              className="px-2 py-1 rounded text-xs font-semibold border"
-                              style={{ backgroundColor: postControl.bg, color: postControl.color, borderColor: postControl.color }}
-                            >
-                              {postControl.level}
-                            </div>
-                          </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Reference Number</div>
+                        <div className="text-sm text-gray-900">
+                          {data.assessmentReference || `COSHH-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`}
                         </div>
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Hazard Pictograms */}
-                {(substance as any).hazardPictograms && (substance as any).hazardPictograms.length > 0 && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Hazard Pictograms</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-red-500 shadow-sm rounded">
-                      <div className="grid grid-cols-3 gap-3">
-                        {(substance as any).hazardPictograms.map((hazard: any, idx: number) => {
-                          const hazardInfo: { [key: string]: { name: string; icon: string; desc: string } } = {
-                            'flammable': { name: 'Flammable', icon: '/Flammable.png', desc: 'Highly flammable liquid and vapor' },
-                            'health-hazard': { name: 'Health Hazard', icon: '/Health Hazard.png', desc: 'May cause respiratory irritation' },
-                            'acute-toxicity': { name: 'Acute Toxicity', icon: '/Acute Toxicity.png', desc: 'Fatal/toxic if swallowed, inhaled, or skin contact' },
-                            'corrosive': { name: 'Corrosive', icon: '/Corrosive.png', desc: 'Causes severe skin burns and eye damage' },
-                            'explosives': { name: 'Explosives', icon: '/Explosives.png', desc: 'May mass explode in fire' },
-                            'gas-stored': { name: 'Gas Under Pressure', icon: '/Gas Stored.png', desc: 'Contains gas under pressure' },
-                            'serious-health-hazard': { name: 'Serious Health Hazard', icon: '/Serious Health Hazard.png', desc: 'May cause cancer or organ damage' },
-                            'oxidising': { name: 'Oxidising', icon: '/Oxidising.png', desc: 'May intensify fire; oxidizer' },
-                            'environmental-hazard': { name: 'Environmental Hazard', icon: '/Hazardous to the Environment.png', desc: 'Toxic to aquatic life' }
-                          };
-                          const info = hazardInfo[hazard.type];
-                          return info ? (
-                            <div key={idx} className="text-center p-2 bg-gray-50 rounded border border-gray-200">
-                              <img src={info.icon} alt={info.name} className="w-16 h-16 mx-auto mb-2" />
-                              <div className="text-xs font-semibold text-gray-900 mb-1">{info.name}</div>
-                              <div className="text-xs text-gray-600">{hazard.hazardClass}</div>
-                              <div className="text-xs text-gray-500 mt-1">{info.desc}</div>
-                            </div>
-                          ) : null;
-                        })}
+                      <div>
+                        <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Date Created</div>
+                        <div className="text-sm text-gray-900">
+                          {formatDate(data.date) !== 'Not specified' ? formatDate(data.date) : new Date().toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Exposure & Usage Information */}
-                <div>
-                  <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                    <h6 className="text-xs font-semibold text-gray-700 uppercase">Exposure & Usage Information</h6>
-                  </div>
-                  <div className="bg-white p-3 border-l-4 border-cyan-500 shadow-sm rounded">
-                    <div className="grid grid-cols-3 gap-2">
-                      {substance.activities && substance.activities.length > 0 && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Activities</div>
-                          <div className="text-xs text-gray-600">{substance.activities.join(', ')}</div>
+                      <div>
+                        <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Review Date</div>
+                        <div className="text-sm text-gray-900">
+                          {data.reviewDate ? formatDate(data.reviewDate) : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}
                         </div>
-                      )}
-                      {substance.methodOfUse && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Method of Use</div>
-                          <div className="text-xs text-gray-600">{substance.methodOfUse}</div>
-                        </div>
-                      )}
-                      {substance.exposureRoutes && substance.exposureRoutes.length > 0 && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Routes of Exposure</div>
-                          <div className="text-xs text-gray-600">{substance.exposureRoutes.join(', ')}</div>
-                        </div>
-                      )}
-                      {substance.substanceForm && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Substance Form</div>
-                          <div className="text-xs text-gray-600">{substance.substanceForm}</div>
-                        </div>
-                      )}
-                      {substance.quantityUsed && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Quantity Used</div>
-                          <div className="text-xs text-gray-600">
-                            {substance.quantityUsed}{substance.quantityUnit ? ` ${substance.quantityUnit}` : ''}
-                          </div>
-                        </div>
-                      )}
-                      {substance.workingEnvironment && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Ventilation</div>
-                          <div className="text-xs text-gray-600">{substance.workingEnvironment}</div>
-                        </div>
-                      )}
-                      {substance.workingEnvironmentDescription && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Environment Description</div>
-                          <div className="text-xs text-gray-600">{substance.workingEnvironmentDescription}</div>
-                        </div>
-                      )}
-                      {substance.temperature && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Temperature</div>
-                          <div className="text-xs text-gray-600">{substance.temperature}</div>
-                        </div>
-                      )}
-                      {substance.confinedSpace !== undefined && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Confined Space</div>
-                          <div className="text-xs text-gray-600">{substance.confinedSpace ? 'Yes' : 'No'}</div>
-                        </div>
-                      )}
-                      {substance.whoExposed && substance.whoExposed.length > 0 && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Who is Exposed</div>
-                          <div className="text-xs text-gray-600">{substance.whoExposed.join(', ')}</div>
-                        </div>
-                      )}
-                      {substance.numberOfWorkers !== undefined && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Number of Workers</div>
-                          <div className="text-xs text-gray-600">{substance.numberOfWorkers}</div>
-                        </div>
-                      )}
-                      {substance.trainingLevel && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Training Level</div>
-                          <div className="text-xs text-gray-600">{substance.trainingLevel}</div>
-                        </div>
-                      )}
-                      {substance.trainingProvided !== undefined && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Training Provided</div>
-                          <div className="text-xs text-gray-600">{substance.trainingProvided ? 'Yes' : 'No'}</div>
-                        </div>
-                      )}
-                      {substance.existingPPE && substance.existingPPE.length > 0 && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Existing PPE</div>
-                          <div className="text-xs text-gray-600">{substance.existingPPE.join(', ')}</div>
-                        </div>
-                      )}
-                      {substance.frequencyOfUse && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Frequency of Use</div>
-                          <div className="text-xs text-gray-600">{substance.frequencyOfUse}</div>
-                        </div>
-                      )}
-                      {substance.durationOfUse && (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Duration of Use</div>
-                          <div className="text-xs text-gray-600">{substance.durationOfUse}</div>
-                        </div>
-                      )}
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* H-Phrases & Workplace Exposure Limits */}
-                {((substance.hPhrases && substance.hPhrases.length > 0) || substance.workplaceExposureLimitLTEL || substance.workplaceExposureLimitSTEL) && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Hazard Statements & Exposure Limits</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-red-500 shadow-sm rounded">
-                      <div className={`grid ${substance.workplaceExposureLimitLTEL || substance.workplaceExposureLimitSTEL ? 'grid-cols-[2fr_1fr]' : 'grid-cols-1'} gap-3`}>
-                        {substance.hPhrases && substance.hPhrases.length > 0 && (
-                          <div>
-                            <div className="text-xs font-semibold text-gray-900 mb-2">H-Phrases</div>
-                            {substance.hPhrases.map((phrase, idx) => (
-                              <div key={idx} className="flex justify-between items-start mb-1 pb-1 border-b border-gray-200">
-                                <div className="flex-1">
-                                  <span className="text-xs font-semibold text-gray-900">{phrase.code}:</span>
-                                  <span className="text-xs text-gray-600 ml-1">{phrase.description}</span>
-                                </div>
-                                <span
-                                  className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${
-                                    phrase.riskLevel === 'High'
-                                      ? 'bg-red-100 text-red-800'
-                                      : phrase.riskLevel === 'Medium'
-                                      ? 'bg-orange-100 text-orange-800'
-                                      : 'bg-green-100 text-green-800'
-                                  }`}
-                                >
-                                  {phrase.riskLevel}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                {/* Hazardous Substances Section - Substance-specific data only */}
+                <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                  <div className="bg-cyan-700 px-4 py-3 rounded-t-lg">
+                    <h4 className="text-sm font-semibold text-white">
+                      Hazardous Substances ({substances.length})
+                    </h4>
+                  </div>
+                <div className="p-4 space-y-4">
+                  {substances.map((substance, idx) => (
+                    <div key={idx} className="p-4 border border-gray-300 bg-white rounded-lg">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h5 className="text-sm font-semibold text-gray-900 mb-1">
+                            {substance.name || 'Chemical Substance'}
+                          </h5>
+                          {substance.manufacturer && (
+                            <div className="text-xs text-gray-600">
+                              <span className="font-semibold">Manufacturer:</span> {substance.manufacturer}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* WELs in top right corner */}
                         {(substance.workplaceExposureLimitLTEL || substance.workplaceExposureLimitSTEL) && (
-                          <div>
-                            <div className="text-xs font-semibold text-gray-900 mb-2">WEL</div>
-                            <div className="space-y-1">
-                              {substance.workplaceExposureLimitLTEL && (
-                                <div className="p-2 bg-gray-50 rounded">
-                                  <div className="text-xs text-gray-600">8-hr TWA</div>
-                                  <div className="text-sm font-semibold text-gray-900">{substance.workplaceExposureLimitLTEL}</div>
-                                </div>
-                              )}
-                              {substance.workplaceExposureLimitSTEL && (
-                                <div className="p-2 bg-gray-50 rounded">
-                                  <div className="text-xs text-gray-600">15-min STEL</div>
-                                  <div className="text-sm font-semibold text-gray-900">{substance.workplaceExposureLimitSTEL}</div>
-                                </div>
-                              )}
-                            </div>
+                          <div className="flex gap-2">
+                            {substance.workplaceExposureLimitLTEL && (
+                              <div className="p-2 bg-gray-50 rounded border border-gray-300">
+                                <div className="text-xs font-semibold text-gray-900">WEL (8hr TWA)</div>
+                                <div className="text-xs text-gray-600">{substance.workplaceExposureLimitLTEL}</div>
+                              </div>
+                            )}
+                            {substance.workplaceExposureLimitSTEL && (
+                              <div className="p-2 bg-gray-50 rounded border border-gray-300">
+                                <div className="text-xs font-semibold text-gray-900">WEL (15min STEL)</div>
+                                <div className="text-xs text-gray-600">{substance.workplaceExposureLimitSTEL}</div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Left Column: Pictograms in 2-col grid */}
+                        <div>
+                          {substance.hazardPictograms && substance.hazardPictograms.length > 0 && (
+                            <div>
+                              <div className="text-xs font-semibold text-gray-900 mb-2">Hazard Pictograms</div>
+                              <div className="grid grid-cols-2 gap-2">
+                                {substance.hazardPictograms.map((hazard, hIdx) => {
+                                  const hazardInfo: { [key: string]: { name: string; icon: string } } = {
+                                    'flammable': { name: 'Flammable', icon: '/Flammable.png' },
+                                    'health-hazard': { name: 'Health Hazard', icon: '/Health Hazard.png' },
+                                    'acute-toxicity': { name: 'Acute Toxicity', icon: '/Acute Toxicity.png' },
+                                    'corrosive': { name: 'Corrosive', icon: '/Corrosive.png' },
+                                    'explosives': { name: 'Explosives', icon: '/Explosives.png' },
+                                    'gas-stored': { name: 'Gas Under Pressure', icon: '/Gas Stored.png' },
+                                    'serious-health-hazard': { name: 'Serious Health Hazard', icon: '/Serious Health Hazard.png' },
+                                    'oxidising': { name: 'Oxidising', icon: '/Oxidising.png' },
+                                    'environmental-hazard': { name: 'Environmental Hazard', icon: '/Hazardous to the Environment.png' }
+                                  };
+                                  const info = hazardInfo[hazard.type];
+                                  return info ? (
+                                    <div key={hIdx} className="flex items-center gap-2 p-1.5 bg-gray-50 rounded border border-gray-300">
+                                      <img src={info.icon} alt={info.name} className="w-8 h-8 shrink-0" />
+                                      <div className="min-w-0">
+                                        <div className="text-xs font-semibold text-gray-900 leading-tight">{info.name}</div>
+                                        <div className="text-xs text-gray-600 truncate">{hazard.hazardClass}</div>
+                                      </div>
+                                    </div>
+                                  ) : null;
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Right Column: H-Phrases */}
+                        <div>
+                          {substance.hPhrases && substance.hPhrases.length > 0 && (
+                            <div>
+                              <div className="text-xs font-semibold text-gray-900 mb-2">Hazard Statements</div>
+                              <div className="space-y-1">
+                                {substance.hPhrases.map((phrase, pIdx) => (
+                                  <div key={pIdx} className="flex items-start gap-2 p-2 bg-gray-50 rounded border border-gray-300">
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded whitespace-nowrap ${
+                                      phrase.riskLevel === 'High' ? 'bg-red-100 text-red-800' :
+                                      phrase.riskLevel === 'Medium' ? 'bg-orange-100 text-orange-800' :
+                                      'bg-yellow-100 text-yellow-800'
+                                    }`}>
+                                      {phrase.code}
+                                    </span>
+                                    <span className="text-xs text-gray-700 flex-1">{phrase.description}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              </>
+            )}
+
+            {/* Usage, Environment & Personnel - Sectioned Layout */}
+            {sharedData && (
+              <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                <div className="bg-cyan-700 px-4 py-3 rounded-t-lg">
+                  <h4 className="text-sm font-semibold text-white">
+                    Usage, Environment & Personnel
+                  </h4>
+                </div>
+                <div className="p-4 space-y-4">
+                  {/* Usage & Exposure Section */}
+                  <div>
+                    <h5 className="text-xs font-bold text-cyan-700 uppercase mb-2 pb-1 border-b border-gray-200">Usage & Exposure</h5>
+                    <div className="grid grid-cols-3 gap-x-6 gap-y-2 mt-2">
+                      {sharedData.activities && sharedData.activities.length > 0 && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Activities:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.activities.join(', ')}</span>
+                        </div>
+                      )}
+                      {sharedData.methodOfUse && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Method of Use:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.methodOfUse}</span>
+                        </div>
+                      )}
+                      {(() => {
+                        const forms = substances.map(s => s.substanceForm).filter(Boolean);
+                        const uniqueForms = [...new Set(forms)];
+                        if (uniqueForms.length === 0) return null;
+                        if (uniqueForms.length === 1) {
+                          return (
+                            <div>
+                              <span className="text-xs font-semibold text-gray-900">Substance Form:</span>
+                              <span className="text-xs text-gray-600 ml-2">{uniqueForms[0]}</span>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="col-span-3">
+                              <span className="text-xs font-semibold text-gray-900">Substance Forms:</span>
+                              <span className="text-xs text-gray-600 ml-2">
+                                {substances.map((s, idx) => (
+                                  s.substanceForm ? (
+                                    <span key={idx} className="mr-3">
+                                      <span className="font-semibold">{s.name}:</span> {s.substanceForm}
+                                    </span>
+                                  ) : null
+                                ))}
+                              </span>
+                            </div>
+                          );
+                        }
+                      })()}
+                      {sharedData.exposureRoutes && sharedData.exposureRoutes.length > 0 && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Exposure Routes:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.exposureRoutes.join(', ')}</span>
+                        </div>
+                      )}
+                      {sharedData.quantityUsed && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Quantity Used:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.quantityUsed}</span>
+                        </div>
+                      )}
+                      {sharedData.frequencyOfUse && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Frequency:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.frequencyOfUse}</span>
+                        </div>
+                      )}
+                      {sharedData.durationOfUse && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Duration:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.durationOfUse}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
 
-                {/* P-Phrases (Precautionary Statements) */}
-                {(substance as any).pPhrases && (substance as any).pPhrases.length > 0 && (
+                  {/* Working Environment Section */}
                   <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Precautionary Statements (P-Phrases)</h6>
+                    <h5 className="text-xs font-bold text-cyan-700 uppercase mb-2 pb-1 border-b border-gray-200">Working Environment</h5>
+                    <div className="grid grid-cols-3 gap-x-6 gap-y-2 mt-2">
+                      {sharedData.confinedSpace !== undefined && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Confined Space:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.confinedSpace ? 'Yes' : 'No'}</span>
+                        </div>
+                      )}
+                      {sharedData.workingEnvironment && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Ventilation:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.workingEnvironment}</span>
+                        </div>
+                      )}
+                      {sharedData.temperature && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Temperature:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.temperature}</span>
+                        </div>
+                      )}
+                      {sharedData.workingEnvironmentDescription && (
+                        <div className="col-span-3">
+                          <span className="text-xs font-semibold text-gray-900">Environment:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.workingEnvironmentDescription}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="bg-white p-3 border-l-4 border-orange-500 shadow-sm rounded">
-                      <div className="space-y-2">
-                        {(substance as any).pPhrases.map((phrase: any, idx: number) => (
-                          <div key={idx} className="flex justify-between items-start p-2 bg-gray-50 rounded border border-gray-200">
-                            <div className="flex-1">
-                              <span className="text-xs font-semibold text-gray-900">{phrase.code}:</span>
-                              <span className="text-xs text-gray-600 ml-1">{phrase.description}</span>
+                  </div>
+
+                  {/* Personnel & Training Section */}
+                  <div>
+                    <h5 className="text-xs font-bold text-cyan-700 uppercase mb-2 pb-1 border-b border-gray-200">Personnel & Training</h5>
+                    <div className="grid grid-cols-3 gap-x-6 gap-y-2 mt-2">
+                      {sharedData.whoExposed && sharedData.whoExposed.length > 0 && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Who is Exposed:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.whoExposed.join(', ')}</span>
+                        </div>
+                      )}
+                      {sharedData.numberOfWorkers && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Number of Workers:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.numberOfWorkers}</span>
+                        </div>
+                      )}
+                      {sharedData.trainingLevel && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Training Level:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.trainingLevel}</span>
+                        </div>
+                      )}
+                      {sharedData.trainingProvided !== undefined && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Training Provided:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.trainingProvided ? 'Yes' : 'No'}</span>
+                        </div>
+                      )}
+                      {sharedData.existingPPE && sharedData.existingPPE.length > 0 && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Existing PPE:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.existingPPE.join(', ')}</span>
+                        </div>
+                      )}
+                      {sharedData.healthScreening !== undefined && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Health Screening:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.healthScreening ? 'Completed' : 'Not Completed'}</span>
+                        </div>
+                      )}
+                      {sharedData.healthSurveillance !== undefined && (
+                        <div>
+                          <span className="text-xs font-semibold text-gray-900">Ongoing Health Surveillance:</span>
+                          <span className="text-xs text-gray-600 ml-2">{sharedData.healthSurveillance ? 'In Place' : 'Not In Place'}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Hazard Assessment & Controls */}
+            {substances.length > 0 && substances.some(s => s.hPhrases && s.hPhrases.length > 0) && (
+              <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                <div className="bg-red-700 px-4 py-3 rounded-t-lg">
+                  <h4 className="text-base font-semibold text-white">
+                    Hazard Assessment & Controls
+                  </h4>
+                </div>
+                <div className="p-4 space-y-6">
+                  {substances.map((substance, subIdx) => (
+                    substance.hPhrases && substance.hPhrases.length > 0 && (
+                      <div key={subIdx}>
+                        {substances.length > 1 && (
+                          <h5 className="text-sm font-bold text-gray-900 mb-4 pb-2 border-b border-gray-300">{substance.name}</h5>
+                        )}
+                        <div className="space-y-4">
+                          {substance.hPhrases.map((phrase, pIdx) => (
+                            <div key={pIdx} className="border-2 border-gray-300 rounded-lg overflow-hidden">
+                              {/* Hazard Header */}
+                              <div className="bg-gray-100 p-3 border-b border-gray-300">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex items-start gap-3 flex-1">
+                                    <span className={`text-xs font-semibold px-2 py-1 rounded whitespace-nowrap ${
+                                      phrase.riskLevel === 'High' ? 'bg-red-100 text-red-800' :
+                                      phrase.riskLevel === 'Medium' ? 'bg-orange-100 text-orange-800' :
+                                      'bg-yellow-100 text-yellow-800'
+                                    }`}>
+                                      {phrase.code}
+                                    </span>
+                                    <span className="text-sm font-semibold text-gray-900 flex-1">{phrase.description}</span>
+                                  </div>
+                                  <span className={`text-xs font-bold px-3 py-1 rounded ml-3 ${
+                                    phrase.riskLevel === 'High' ? 'bg-red-600 text-white' :
+                                    phrase.riskLevel === 'Medium' ? 'bg-orange-500 text-white' :
+                                    'bg-yellow-500 text-white'
+                                  }`}>
+                                    {phrase.riskLevel}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Risk Assessment */}
+                              <div className="p-3 bg-white">
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                  {/* Before Controls */}
+                                  <div>
+                                    <div className="text-xs font-semibold text-gray-600 mb-1">Before Controls</div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 h-6 bg-linear-to-r from-green-500 to-red-600 rounded relative">
+                                        <div
+                                          className="absolute top-0 h-full w-0.5 bg-gray-900"
+                                          style={{ left: '80%' }}
+                                        />
+                                      </div>
+                                      <div className="text-lg font-bold text-white bg-red-600 px-2 py-0.5 rounded text-center min-w-[40px]">
+                                        20
+                                      </div>
+                                    </div>
+                                    <div className="text-xs text-red-700 font-semibold mt-1">High Risk</div>
+                                  </div>
+
+                                  {/* After Controls */}
+                                  <div>
+                                    <div className="text-xs font-semibold text-gray-600 mb-1">After Controls</div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 h-6 bg-linear-to-r from-green-500 to-red-600 rounded relative">
+                                        <div
+                                          className="absolute top-0 h-full w-0.5 bg-gray-900"
+                                          style={{ left: '20%' }}
+                                        />
+                                      </div>
+                                      <div className="text-lg font-bold text-white bg-green-600 px-2 py-0.5 rounded text-center min-w-[40px]">
+                                        5
+                                      </div>
+                                    </div>
+                                    <div className="text-xs text-green-700 font-semibold mt-1">Low Risk</div>
+                                  </div>
+                                </div>
+
+                                {/* Controls for this hazard */}
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                  <div className="text-xs font-bold text-gray-900 mb-2">Controls for this Hazard</div>
+                                  <div className="space-y-1.5">
+                                    {/* Dummy controls - in real implementation these would be filtered by hazard */}
+                                    <div className="flex items-start gap-2 p-2 bg-blue-50 rounded border border-blue-200 text-xs">
+                                      <span className="font-semibold text-blue-900 shrink-0">P260:</span>
+                                      <span className="text-gray-700">Do not breathe vapours/spray. Use Local Exhaust Ventilation (LEV)</span>
+                                    </div>
+                                    <div className="flex items-start gap-2 p-2 bg-blue-50 rounded border border-blue-200 text-xs">
+                                      <span className="font-semibold text-blue-900 shrink-0">P284:</span>
+                                      <span className="text-gray-700">Wear respiratory protection (A1P2 filters). RPE must be face-fit tested</span>
+                                    </div>
+                                    <div className="flex items-start gap-2 p-2 bg-blue-50 rounded border border-blue-200 text-xs">
+                                      <span className="font-semibold text-blue-900 shrink-0">P280:</span>
+                                      <span className="text-gray-700">Wear nitrile gloves, coveralls, safety goggles and face shield</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            <span className="ml-2 px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 whitespace-nowrap">
-                              {phrase.type}
-                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Control Measures */}
+            {data.controlMeasures && (
+              <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                <div className="bg-gray-700 px-4 py-3 rounded-t-lg">
+                  <h4 className="text-base font-semibold text-white">
+                    Control Measures
+                  </h4>
+                </div>
+                <div className="p-4">
+
+                  {/* Normal Controls In Place */}
+                  {data.controlMeasures.normalControls && data.controlMeasures.normalControls.length > 0 && (
+                    <div className="mb-6">
+                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                        Controls In Place
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {data.controlMeasures.normalControls.map((control, idx) => (
+                          <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded border border-gray-300">
+                            <div className="shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-800">
+                              {control.code.startsWith('P') ? 'P' : control.hierarchy === 'engineering' ? 'E' : control.hierarchy === 'ppe' ? 'PPE' : 'A'}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
+                              <div className="text-xs text-gray-700">{control.description}</div>
+                            </div>
                           </div>
                         ))}
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* First Aid Measures */}
-                {(substance as any).firstAid && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">First Aid Measures</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-green-500 shadow-sm rounded">
-                      <div className="text-xs text-gray-700 whitespace-pre-line">
-                        {(substance as any).firstAid}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Firefighting Measures */}
-                {(substance as any).firefighting && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Firefighting Measures</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-red-600 shadow-sm rounded">
-                      <div className="space-y-3">
-                        {(substance as any).firefighting.extinguishingMedia && (
-                          <div>
-                            <div className="text-xs font-semibold text-gray-900 mb-1">Extinguishing Media</div>
-                            <div className="text-xs text-gray-700">{(substance as any).firefighting.extinguishingMedia}</div>
-                          </div>
-                        )}
-                        {(substance as any).firefighting.specialHazards && (
-                          <div>
-                            <div className="text-xs font-semibold text-gray-900 mb-1">Special Hazards</div>
-                            <div className="text-xs text-gray-700">{(substance as any).firefighting.specialHazards}</div>
-                          </div>
-                        )}
-                        {(substance as any).firefighting.firefightingEquipment && (
-                          <div>
-                            <div className="text-xs font-semibold text-gray-900 mb-1">Protective Equipment for Firefighters</div>
-                            <div className="text-xs text-gray-700">{(substance as any).firefighting.firefightingEquipment}</div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Storage Requirements */}
-                {(substance as any).storageRequirements && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Handling & Storage Requirements</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-yellow-600 shadow-sm rounded">
-                      <div className="text-xs text-gray-700">
-                        {(substance as any).storageRequirements}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Elimination & Substitution */}
-                {(substance.canEliminate !== undefined || substance.canSubstitute !== undefined || substance.eliminationSubstitutionJustification) && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Elimination & Substitution Assessment</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-cyan-500 shadow-sm rounded space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        {substance.canEliminate !== undefined && (
-                          <div className={`p-2 bg-gray-50 rounded border ${substance.canEliminate ? 'border-green-500' : 'border-red-500'}`}>
-                            <div className="text-xs text-gray-600 mb-1">Can be eliminated?</div>
-                            <div className={`text-sm font-semibold ${substance.canEliminate ? 'text-green-600' : 'text-red-600'}`}>
-                              {substance.canEliminate ? '✓ YES' : '✗ NO'}
+                  {/* Storage Controls */}
+                  {data.controlMeasures.storageControls && data.controlMeasures.storageControls.length > 0 && (
+                    <div className="mb-6">
+                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                        Storage Requirements
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {data.controlMeasures.storageControls.map((control, idx) => (
+                          <div key={idx} className="flex items-start gap-3 p-3 bg-purple-50 rounded border border-purple-200">
+                            <div className="shrink-0 w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center text-xs font-bold text-purple-800">
+                              S
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
+                              <div className="text-xs text-gray-700">{control.description}</div>
                             </div>
                           </div>
-                        )}
-                        {substance.canSubstitute !== undefined && (
-                          <div className={`p-2 bg-gray-50 rounded border ${substance.canSubstitute ? 'border-green-500' : 'border-red-500'}`}>
-                            <div className="text-xs text-gray-600 mb-1">Can be substituted?</div>
-                            <div className={`text-sm font-semibold ${substance.canSubstitute ? 'text-green-600' : 'text-red-600'}`}>
-                              {substance.canSubstitute ? '✓ YES' : '✗ NO'}
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Handling Controls */}
+                  {data.controlMeasures.handlingControls && data.controlMeasures.handlingControls.length > 0 && (
+                    <div className="mb-6">
+                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                        Safe Handling Procedures
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {data.controlMeasures.handlingControls.map((control, idx) => (
+                          <div key={idx} className="flex items-start gap-3 p-3 bg-blue-50 rounded border border-blue-200">
+                            <div className="shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-800">
+                              H
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
+                              <div className="text-xs text-gray-700">{control.description}</div>
                             </div>
                           </div>
-                        )}
+                        ))}
                       </div>
-                      {substance.eliminationSubstitutionJustification && (
-                        <div className="p-2 bg-yellow-50 border-l-4 border-yellow-500 rounded">
-                          <div className="text-xs font-semibold text-gray-900 mb-1">Justification</div>
-                          <div className="text-xs text-gray-700">{substance.eliminationSubstitutionJustification}</div>
+                    </div>
+                  )}
+
+                  {/* Disposal Controls */}
+                  {data.controlMeasures.disposalControls && data.controlMeasures.disposalControls.length > 0 && (
+                    <div className="mb-6">
+                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                        Disposal Procedures
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {data.controlMeasures.disposalControls.map((control, idx) => (
+                          <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded border border-gray-300">
+                            <div className="shrink-0 w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-800">
+                              D
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
+                              <div className="text-xs text-gray-700">{control.description}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* First Aid Controls */}
+                  {data.controlMeasures.firstAidControls && data.controlMeasures.firstAidControls.length > 0 && (
+                    <div className="mb-6">
+                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                        First Aid Measures
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {data.controlMeasures.firstAidControls.map((control, idx) => (
+                          <div key={idx} className="flex items-start gap-3 p-3 bg-green-50 rounded border border-green-200">
+                            <div className="shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-xs font-bold text-green-800">
+                              FA
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
+                              <div className="text-xs text-gray-700">{control.description}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Spill Response Controls */}
+                  {data.controlMeasures.spillControls && data.controlMeasures.spillControls.length > 0 && (
+                    <div>
+                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                        Spill Response Procedures
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {data.controlMeasures.spillControls.map((control, idx) => (
+                          <div key={idx} className="flex items-start gap-3 p-3 bg-orange-50 rounded border border-orange-200">
+                            <div className="shrink-0 w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center text-xs font-bold text-orange-800">
+                              SP
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
+                              <div className="text-xs text-gray-700">{control.description}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Health Surveillance Requirements */}
+            {data.healthSurveillanceRequirements && data.healthSurveillanceRequirements.length > 0 && (
+              <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                <div className="bg-cyan-700 px-4 py-3 rounded-t-lg">
+                  <h4 className="text-sm font-semibold text-white">
+                    Mandatory Health Surveillance Required
+                  </h4>
+                </div>
+                <div className="p-4">
+                  {data.healthSurveillanceRequirements.map((req, idx) => (
+                    <div key={idx} className="mb-4 last:mb-0 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h5 className="text-sm font-bold text-gray-900 mb-1">{req.substance}</h5>
+                          <div className="text-xs text-amber-800 font-semibold">
+                            {req.legalReference}
+                          </div>
+                        </div>
+                        <div className="px-3 py-1 bg-red-100 text-red-800 text-xs font-bold rounded-full">
+                          MANDATORY
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 mb-3">
+                        <div>
+                          <div className="text-xs font-semibold text-gray-900 mb-1">Frequency</div>
+                          <div className="text-xs text-gray-700">{req.frequency}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-gray-900 mb-1">Surveillance Type</div>
+                          <div className="text-xs text-gray-700">
+                            {req.surveillanceType.join(', ')}
+                          </div>
+                        </div>
+                      </div>
+
+                      {req.additionalInfo && (
+                        <div className="text-xs text-gray-600 bg-white p-2 rounded border border-gray-200">
+                          <span className="font-semibold">Note:</span> {req.additionalInfo}
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {/* Method Statement - Job Steps */}
-                {substance.methodStatementSteps && substance.methodStatementSteps.length > 0 && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Method Statement - Job Steps</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-cyan-500 shadow-sm rounded">
-                      <div className="text-xs text-gray-600">
-                        {substance.methodStatementSteps.length} step{substance.methodStatementSteps.length !== 1 ? 's' : ''} defined
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Control Measures */}
-                {substance.controlMeasures && substance.controlMeasures.length > 0 && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Control Measures (COSHH Hierarchy)</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-blue-500 shadow-sm rounded">
-                      <div className="text-xs text-gray-600">
-                        {substance.controlMeasures.length} control measure{substance.controlMeasures.length !== 1 ? 's' : ''} in place
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* PPE Requirements */}
-                {substance.ppeItems && substance.ppeItems.length > 0 && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Personal Protective Equipment (PPE)</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-blue-500 shadow-sm rounded">
-                      <div className="text-xs text-gray-600">
-                        {substance.ppeItems.length} PPE item{substance.ppeItems.length !== 1 ? 's' : ''} required
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Emergency Procedures & Storage */}
-                {((substance.emergencyProcedureItems && substance.emergencyProcedureItems.length > 0) ||
-                  (substance.storageRequirementItems && substance.storageRequirementItems.length > 0)) && (
-                  <div className="grid grid-cols-2 gap-3">
-                    {substance.emergencyProcedureItems && substance.emergencyProcedureItems.length > 0 && (
-                      <div>
-                        <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                          <h6 className="text-xs font-semibold text-gray-700 uppercase">Emergency Procedures</h6>
-                        </div>
-                        <div className="bg-white p-3 border-l-4 border-red-500 shadow-sm rounded">
-                          <div className="text-xs text-gray-600">
-                            {substance.emergencyProcedureItems.length} procedure{substance.emergencyProcedureItems.length !== 1 ? 's' : ''}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {substance.storageRequirementItems && substance.storageRequirementItems.length > 0 && (
-                      <div>
-                        <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                          <h6 className="text-xs font-semibold text-gray-700 uppercase">Storage Requirements</h6>
-                        </div>
-                        <div className="bg-white p-3 border-l-4 border-yellow-500 shadow-sm rounded">
-                          <div className="text-xs text-gray-600">
-                            {substance.storageRequirementItems.length} requirement{substance.storageRequirementItems.length !== 1 ? 's' : ''}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Emergency Contacts */}
-                {substance.emergencyContacts && substance.emergencyContacts.length > 0 && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Emergency Contacts</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-red-600 shadow-sm rounded">
-                      <div className="text-xs text-gray-600">
-                        {substance.emergencyContacts.length} contact{substance.emergencyContacts.length !== 1 ? 's' : ''}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Health Surveillance */}
-                {substance.healthSurveillanceItems && substance.healthSurveillanceItems.length > 0 && (
-                  <div>
-                    <div className="bg-gray-100 px-2 py-1 rounded mb-2">
-                      <h6 className="text-xs font-semibold text-gray-700 uppercase">Health Surveillance</h6>
-                    </div>
-                    <div className="bg-white p-3 border-l-4 border-green-500 shadow-sm rounded">
-                      <div className="text-xs text-gray-600">
-                        {substance.healthSurveillanceItems.length} requirement{substance.healthSurveillanceItems.length !== 1 ? 's' : ''}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
+                  ))}
+                </div>
               </div>
-            );
-            })}
+            )}
           </>
         )}
       </div>
