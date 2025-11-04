@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui';
 
 export interface ChatMessage {
@@ -8,11 +8,6 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  fileAttachment?: {
-    name: string;
-    type: string;
-    size: number;
-  };
 }
 
 interface COSHHChatProps {
@@ -22,142 +17,32 @@ interface COSHHChatProps {
   onDataUpdate?: (data: any) => void;
 }
 
+interface UploadedFile {
+  id: string;
+  file: File;
+  name: string;
+}
+
+interface SelectedProcess {
+  id: string;
+  processType: string;
+  material?: string;
+  customMaterial?: string;
+  duration?: string;
+  frequency?: string;
+}
+
+type CreateStep = 'select_sources' | 'upload_sds' | 'select_processes' | 'review';
+
 export function COSHHChat({ agentId, onComplete, onModeChange, onDataUpdate }: COSHHChatProps) {
   const [mode, setMode] = useState<'menu' | 'create' | 'search' | 'review'>('menu');
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: `Hello! I'm your COSHH Assessment Assistant.
 
-What would you like to do today?`,
-      timestamp: new Date(),
-    },
-  ]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Validate file type
-      const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
-      if (!validTypes.includes(file.type)) {
-        alert('Please upload a PDF or image file (JPG, PNG)');
-        return;
-      }
-
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        alert('File size must be less than 10MB');
-        return;
-      }
-
-      setSelectedFile(file);
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!input.trim() && !selectedFile) return;
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input || (selectedFile ? `Uploaded ${selectedFile.name}` : ''),
-      timestamp: new Date(),
-      fileAttachment: selectedFile
-        ? {
-            name: selectedFile.name,
-            type: selectedFile.type,
-            size: selectedFile.size,
-          }
-        : undefined,
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput('');
-    const fileToSend = selectedFile;
-    setSelectedFile(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-    setIsLoading(true);
-
-    try {
-      // Send message to API
-      const formData = new FormData();
-      formData.append('message', input);
-      formData.append('messages', JSON.stringify(messages));
-      if (fileToSend) {
-        formData.append('file', fileToSend);
-      }
-
-      const response = await fetch(`/api/agents/${agentId}/chat`, {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('[COSHHChat] API error:', response.status, errorData);
-        throw new Error(errorData.error || 'Failed to send message');
-      }
-
-      const data = await response.json();
-
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.message,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      // Update form data if workflow data is returned
-      if (data.workflowData) {
-        console.log('[COSHHChat] Received workflow data:', data.workflowData);
-        onDataUpdate?.(data.workflowData);
-      } else {
-        console.log('[COSHHChat] No workflow data in response');
-      }
-
-      // Check if assessment is complete
-      if (data.complete && data.assessmentId) {
-        onComplete?.(data.assessmentId);
-      }
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
+  // Create mode state
+  const [createStep, setCreateStep] = useState<CreateStep>('select_sources');
+  const [hasSDS, setHasSDS] = useState(false);
+  const [hasProcesses, setHasProcesses] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [selectedProcesses, setSelectedProcesses] = useState<SelectedProcess[]>([]);
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border border-gray-200">
@@ -171,184 +56,652 @@ What would you like to do today?`,
         </p>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.role === 'user' ? 'justify-end' : 'justify-start'
-            }`}
-          >
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                message.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-900'
-              }`}
-            >
-              {message.fileAttachment && (
-                <div className="mb-2 pb-2 border-b border-gray-300">
-                  <div className="flex items-center space-x-2 text-sm">
-                    <span>📎</span>
-                    <span className="font-medium">
-                      {message.fileAttachment.name}
-                    </span>
-                    <span className="text-xs opacity-75">
-                      ({Math.round(message.fileAttachment.size / 1024)} KB)
-                    </span>
-                  </div>
-                </div>
-              )}
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-              <p
-                className={`text-xs mt-1 ${
-                  message.role === 'user' ? 'text-blue-200' : 'text-gray-500'
-                }`}
-              >
-                {message.timestamp.toLocaleTimeString('en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </p>
-            </div>
-          </div>
-        ))}
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {mode === 'menu' && (
+          <div className="flex flex-col items-center justify-center h-full">
+            {/* Welcome Message */}
+            <div className="max-w-md w-full mb-8">
+              <div className="bg-gray-100 rounded-lg px-6 py-4 mb-6">
+                <p className="text-sm text-gray-900">
+                  Hello! I'm your COSHH Assessment Assistant.
+                </p>
+              </div>
 
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg px-4 py-3">
-              <div className="flex space-x-2">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
+              {/* Action Buttons */}
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    setMode('create');
+                    onModeChange?.('create');
+                  }}
+                  className="w-full px-6 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-left transition-colors group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold mb-1">Create New Assessment</div>
+                      <div className="text-sm text-blue-100">
+                        Start a new COSHH risk assessment
+                      </div>
+                    </div>
+                    <svg
+                      className="w-5 h-5 text-blue-200 group-hover:translate-x-1 transition-transform"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMode('review');
+                    onModeChange?.('review');
+                  }}
+                  className="w-full px-6 py-4 bg-white border-2 border-gray-200 text-gray-900 rounded-lg hover:border-gray-300 hover:bg-gray-50 text-left transition-colors group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold mb-1">Review & Update Existing</div>
+                      <div className="text-sm text-gray-600">
+                        View and update your assessments
+                      </div>
+                    </div>
+                    <svg
+                      className="w-5 h-5 text-gray-400 group-hover:translate-x-1 transition-transform"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMode('search');
+                    onModeChange?.('search');
+                  }}
+                  className="w-full px-6 py-4 bg-white border-2 border-gray-200 text-gray-900 rounded-lg hover:border-gray-300 hover:bg-gray-50 text-left transition-colors group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold mb-1">Search Assessments</div>
+                      <div className="text-sm text-gray-600">
+                        Find existing assessments
+                      </div>
+                    </div>
+                    <svg
+                      className="w-5 h-5 text-gray-400 group-hover:translate-x-1 transition-transform"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </div>
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Option Buttons - Show only in menu mode */}
-        {mode === 'menu' && messages.length === 1 && (
-          <div className="flex flex-col gap-2 px-6">
-            <button
-              onClick={() => {
-                setMode('create');
-                onModeChange?.('create');
-                const msg: ChatMessage = {
-                  id: Date.now().toString(),
-                  role: 'assistant',
-                  content: 'Great! Let\'s create a new COSHH assessment. Please upload the Safety Data Sheet (SDS) for the chemical substance you\'re assessing.\n\nI\'ll extract the key information automatically from the document. You can upload a PDF or image file (JPG, PNG) using the 📎 button below.',
-                  timestamp: new Date(),
-                };
-                setMessages([...messages, msg]);
-              }}
-              className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium transition-colors text-left"
-            >
-              Create New Assessment
-            </button>
+        {mode === 'create' && (
+          <div className="h-full flex flex-col">
+            {/* Step 1: Select Hazard Sources */}
+            {createStep === 'select_sources' && (
+              <div className="flex-1 flex flex-col">
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    What hazards do you need to assess?
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Select all that apply
+                  </p>
+                </div>
 
-            <button
-              onClick={() => {
-                setMode('search');
-                onModeChange?.('search');
-                const msg: ChatMessage = {
-                  id: Date.now().toString(),
-                  role: 'assistant',
-                  content: 'Use the search box in the Previous Assessments panel on the left to find specific assessments by chemical name.',
-                  timestamp: new Date(),
-                };
-                setMessages([...messages, msg]);
-              }}
-              className="w-full px-3 py-2 bg-gray-100 text-gray-900 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors text-left"
-            >
-              Search Assessments
-            </button>
+                <div className="space-y-4 mb-8">
+                  <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={hasSDS}
+                      onChange={(e) => setHasSDS(e.target.checked)}
+                      className="mt-1 mr-3 h-4 w-4 text-blue-600 rounded"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900">
+                        I have Safety Data Sheets (SDS)
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        For chemicals, substances, or products with SDS documentation
+                      </div>
+                    </div>
+                  </label>
 
-            <button
-              onClick={() => {
-                setMode('review');
-                onModeChange?.('review');
-                const msg: ChatMessage = {
-                  id: Date.now().toString(),
-                  role: 'assistant',
-                  content: 'Check the Previous Assessments panel on the left. Assessments due for review (11+ months old) will be highlighted in yellow.',
-                  timestamp: new Date(),
-                };
-                setMessages([...messages, msg]);
-              }}
-              className="w-full px-3 py-2 bg-gray-100 text-gray-900 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors text-left"
-            >
-              Review Assessments
-            </button>
+                  <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={hasProcesses}
+                      onChange={(e) => setHasProcesses(e.target.checked)}
+                      className="mt-1 mr-3 h-4 w-4 text-blue-600 rounded"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900">
+                        I have work processes or activities
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        For activities like welding, grinding, cutting that create hazardous substances
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="mt-auto flex gap-3">
+                  <Button
+                    onClick={() => setMode('menu')}
+                    variant="ghost"
+                  >
+                    ← Back
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (hasSDS) {
+                        setCreateStep('upload_sds');
+                      } else if (hasProcesses) {
+                        setCreateStep('select_processes');
+                      }
+                    }}
+                    disabled={!hasSDS && !hasProcesses}
+                  >
+                    Continue →
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2a: Upload SDS Files */}
+            {createStep === 'upload_sds' && (
+              <div className="flex-1 flex flex-col">
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Upload Safety Data Sheets
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Upload one or multiple SDS files (PDF format)
+                  </p>
+                </div>
+
+                {/* File Upload Area */}
+                <div className="mb-6">
+                  <label className="block w-full p-8 border-2 border-dashed border-gray-300 rounded-lg text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        const newFiles = files.map(file => ({
+                          id: Math.random().toString(36).substring(2, 11),
+                          file,
+                          name: file.name
+                        }));
+                        setUploadedFiles([...uploadedFiles, ...newFiles]);
+                      }}
+                    />
+                    <div className="text-4xl mb-2">📄</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      Click to upload or drag and drop
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      PDF files only
+                    </div>
+                  </label>
+                </div>
+
+                {/* Uploaded Files List */}
+                {uploadedFiles.length > 0 && (
+                  <div className="mb-6">
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">
+                      Uploaded Files ({uploadedFiles.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {uploadedFiles.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">📄</span>
+                            <span className="text-sm text-gray-900">{file.name}</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setUploadedFiles(uploadedFiles.filter(f => f.id !== file.id));
+                            }}
+                            className="text-sm text-red-600 hover:text-red-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-auto flex gap-3">
+                  <Button
+                    onClick={() => setCreateStep('select_sources')}
+                    variant="ghost"
+                  >
+                    ← Back
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (hasProcesses) {
+                        setCreateStep('select_processes');
+                      } else {
+                        setCreateStep('review');
+                      }
+                    }}
+                    disabled={uploadedFiles.length === 0}
+                  >
+                    Continue →
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2b: Select Processes */}
+            {createStep === 'select_processes' && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Select Work Processes
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Choose activities that create hazardous substances
+                  </p>
+                </div>
+
+                {/* Add Process Button */}
+                <div className="mb-4">
+                  <button
+                    onClick={() => {
+                      setSelectedProcesses([
+                        ...selectedProcesses,
+                        {
+                          id: Math.random().toString(36).substring(2, 11),
+                          processType: '',
+                          material: '',
+                          duration: '',
+                          frequency: ''
+                        }
+                      ]);
+                    }}
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors text-sm font-medium"
+                  >
+                    + Add Process/Activity
+                  </button>
+                </div>
+
+                {/* Selected Processes List */}
+                <div className="flex-1 overflow-y-auto mb-4">
+                  {selectedProcesses.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-center">
+                      <div>
+                        <div className="text-4xl mb-3">⚙️</div>
+                        <p className="text-sm text-gray-600">
+                          No processes added yet.<br />Click "Add Process/Activity" to begin.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {selectedProcesses.map((process, index) => (
+                        <div
+                          key={process.id}
+                          className="p-4 bg-gray-50 rounded-lg border border-gray-200"
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <h4 className="text-sm font-medium text-gray-900">
+                              Process {index + 1}
+                            </h4>
+                            <button
+                              onClick={() => {
+                                setSelectedProcesses(
+                                  selectedProcesses.filter((p) => p.id !== process.id)
+                                );
+                              }}
+                              className="text-xs text-red-600 hover:text-red-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+
+                          <div className="space-y-3">
+                            {/* Process Type */}
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Process/Activity Type *
+                              </label>
+                              <select
+                                value={process.processType}
+                                onChange={(e) => {
+                                  const updated = [...selectedProcesses];
+                                  updated[index].processType = e.target.value;
+                                  setSelectedProcesses(updated);
+                                }}
+                                className="w-full px-3 py-2 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Select a process...</option>
+                                <optgroup label="Welding & Hot Work">
+                                  <option value="welding">Welding</option>
+                                  <option value="mig_welding">MIG Welding</option>
+                                  <option value="tig_welding">TIG Welding</option>
+                                  <option value="arc_welding">Arc Welding</option>
+                                  <option value="brazing">Brazing</option>
+                                  <option value="soldering">Soldering</option>
+                                  <option value="flame_cutting">Flame Cutting</option>
+                                </optgroup>
+                                <optgroup label="Cutting & Grinding">
+                                  <option value="grinding">Grinding</option>
+                                  <option value="cutting">Cutting (Mechanical)</option>
+                                  <option value="abrasive_wheels">Abrasive Wheel Use</option>
+                                  <option value="angle_grinding">Angle Grinding</option>
+                                  <option value="disc_cutting">Disc Cutting</option>
+                                </optgroup>
+                                <optgroup label="Woodworking">
+                                  <option value="wood_cutting">Wood Cutting/Sawing</option>
+                                  <option value="wood_sanding">Wood Sanding</option>
+                                  <option value="wood_routing">Wood Routing</option>
+                                  <option value="wood_drilling">Wood Drilling</option>
+                                </optgroup>
+                                <optgroup label="Surface Treatment">
+                                  <option value="paint_spraying">Paint Spraying</option>
+                                  <option value="powder_coating">Powder Coating</option>
+                                  <option value="sandblasting">Sandblasting/Abrasive Blasting</option>
+                                </optgroup>
+                                <optgroup label="Other Processes">
+                                  <option value="diesel_exhaust">Diesel Engine Operation</option>
+                                  <option value="flour_dust">Flour/Grain Handling</option>
+                                  <option value="latex">Latex/Rubber Processing</option>
+                                  <option value="concrete_cutting">Concrete Cutting/Drilling</option>
+                                  <option value="stone_cutting">Stone Cutting/Masonry</option>
+                                  <option value="other">Other (describe in material field)</option>
+                                </optgroup>
+                              </select>
+                            </div>
+
+                            {/* Material/Substance */}
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Material/Substance Being Worked
+                              </label>
+                              <select
+                                value={process.material}
+                                onChange={(e) => {
+                                  const updated = [...selectedProcesses];
+                                  updated[index].material = e.target.value;
+                                  if (e.target.value !== 'other') {
+                                    updated[index].customMaterial = '';
+                                  }
+                                  setSelectedProcesses(updated);
+                                }}
+                                className="w-full px-3 py-2 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Select material/substance...</option>
+
+                                <optgroup label="Metals & Alloys">
+                                  <option value="mild_steel">Mild Steel</option>
+                                  <option value="stainless_steel">Stainless Steel</option>
+                                  <option value="galvanized_steel">Galvanized Steel</option>
+                                  <option value="aluminium">Aluminium</option>
+                                  <option value="copper">Copper</option>
+                                  <option value="brass">Brass</option>
+                                  <option value="bronze">Bronze</option>
+                                  <option value="cunifer">Cunifer (Copper-Nickel)</option>
+                                  <option value="cast_iron">Cast Iron</option>
+                                  <option value="lead">Lead-containing Material</option>
+                                </optgroup>
+
+                                <optgroup label="Wood Types">
+                                  <option value="hardwood">Hardwood (General)</option>
+                                  <option value="oak">Oak</option>
+                                  <option value="beech">Beech</option>
+                                  <option value="mahogany">Mahogany</option>
+                                  <option value="teak">Teak</option>
+                                  <option value="softwood">Softwood (General)</option>
+                                  <option value="pine">Pine</option>
+                                  <option value="mdf">MDF (Medium-Density Fibreboard)</option>
+                                  <option value="plywood">Plywood</option>
+                                  <option value="chipboard">Chipboard/Particleboard</option>
+                                </optgroup>
+
+                                <optgroup label="Construction Materials">
+                                  <option value="concrete">Concrete</option>
+                                  <option value="brick">Brick</option>
+                                  <option value="stone">Stone/Natural Stone</option>
+                                  <option value="mortar">Mortar</option>
+                                  <option value="plaster">Plaster</option>
+                                  <option value="render">Render</option>
+                                </optgroup>
+
+                                <optgroup label="Hazardous Substances Produced">
+                                  <option value="silica">Respirable Crystalline Silica (RCS)</option>
+                                  <option value="wood_dust">Wood Dust</option>
+                                  <option value="metal_fumes">Metal Fumes</option>
+                                  <option value="welding_fumes">Welding Fumes/Gases</option>
+                                  <option value="chromium_vi">Hexavalent Chromium (Cr(VI))</option>
+                                  <option value="nickel">Nickel Compounds</option>
+                                  <option value="manganese">Manganese Fumes</option>
+                                  <option value="zinc_oxide">Zinc Oxide Fumes</option>
+                                  <option value="flour_dust">Flour/Grain Dust</option>
+                                  <option value="isocyanates">Isocyanates</option>
+                                  <option value="solvents">Solvents/VOCs</option>
+                                </optgroup>
+
+                                <optgroup label="Other">
+                                  <option value="other">Other (specify below)</option>
+                                  <option value="mixed">Mixed Materials</option>
+                                </optgroup>
+                              </select>
+
+                              {/* Custom Material Input - shown when "other" is selected */}
+                              {process.material === 'other' && (
+                                <input
+                                  type="text"
+                                  value={process.customMaterial || ''}
+                                  onChange={(e) => {
+                                    const updated = [...selectedProcesses];
+                                    updated[index].customMaterial = e.target.value;
+                                    setSelectedProcesses(updated);
+                                  }}
+                                  placeholder="Specify the material or substance"
+                                  className="w-full px-3 py-2 text-sm text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mt-2"
+                                />
+                              )}
+
+                              <p className="text-xs text-gray-500 mt-1">
+                                Select the primary material or hazardous substance produced
+                              </p>
+                            </div>
+
+                            {/* Duration */}
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Typical Duration per Session
+                              </label>
+                              <input
+                                type="text"
+                                value={process.duration}
+                                onChange={(e) => {
+                                  const updated = [...selectedProcesses];
+                                  updated[index].duration = e.target.value;
+                                  setSelectedProcesses(updated);
+                                }}
+                                placeholder="e.g., 2 hours, 30 minutes"
+                                className="w-full px-3 py-2 text-sm text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+
+                            {/* Frequency */}
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Frequency
+                              </label>
+                              <select
+                                value={process.frequency}
+                                onChange={(e) => {
+                                  const updated = [...selectedProcesses];
+                                  updated[index].frequency = e.target.value;
+                                  setSelectedProcesses(updated);
+                                }}
+                                className="w-full px-3 py-2 text-sm text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Select frequency...</option>
+                                <option value="continuous">Continuous (daily, all day)</option>
+                                <option value="frequent">Frequent (daily, part of day)</option>
+                                <option value="occasional">Occasional (few times per week)</option>
+                                <option value="infrequent">Infrequent (once per week or less)</option>
+                                <option value="rare">Rare (once per month or less)</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => {
+                      if (hasSDS) {
+                        setCreateStep('upload_sds');
+                      } else {
+                        setCreateStep('select_sources');
+                      }
+                    }}
+                    variant="ghost"
+                  >
+                    ← Back
+                  </Button>
+                  <Button
+                    onClick={() => setCreateStep('review')}
+                    disabled={selectedProcesses.length === 0 || selectedProcesses.some(p => !p.processType)}
+                  >
+                    Continue →
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Review - Placeholder */}
+            {createStep === 'review' && (
+              <div className="flex-1 flex flex-col">
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Review Hazards
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Confirm all hazards before generating assessment
+                  </p>
+                </div>
+
+                <div className="flex-1 flex items-center justify-center text-center">
+                  <div>
+                    <div className="text-4xl mb-4">🚧</div>
+                    <p className="text-gray-600">
+                      Review interface coming next
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-auto flex gap-3">
+                  <Button
+                    onClick={() => {
+                      if (hasProcesses) {
+                        setCreateStep('select_processes');
+                      } else if (hasSDS) {
+                        setCreateStep('upload_sds');
+                      } else {
+                        setCreateStep('select_sources');
+                      }
+                    }}
+                    variant="ghost"
+                  >
+                    ← Back
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      // TODO: Generate assessment
+                      console.log('Generate assessment');
+                    }}
+                  >
+                    Generate Assessment
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input Area */}
-      <div className="px-6 py-4 border-t border-gray-200">
-        {selectedFile && (
-          <div className="mb-3 flex items-center justify-between px-3 py-2 bg-blue-50 rounded-lg">
-            <div className="flex items-center space-x-2 text-sm text-blue-900">
-              <span>📎</span>
-              <span>{selectedFile.name}</span>
-              <span className="text-xs text-blue-600">
-                ({Math.round(selectedFile.size / 1024)} KB)
-              </span>
+        {mode === 'review' && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="text-4xl mb-4">📋</div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                Review & Update
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Use the list on the left to select an assessment
+              </p>
+              <Button
+                onClick={() => setMode('menu')}
+              >
+                ← Back to Menu
+              </Button>
             </div>
-            <button
-              onClick={() => {
-                setSelectedFile(null);
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = '';
-                }
-              }}
-              className="text-blue-600 hover:text-blue-800"
-            >
-              ✕
-            </button>
           </div>
         )}
 
-        <div className="flex space-x-2">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            accept=".pdf,.jpg,.jpeg,.png"
-            className="hidden"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading}
-          >
-            📎
-          </Button>
-
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder="Type your message..."
-            disabled={isLoading}
-            rows={1}
-            className="flex-1 px-4 py-2 text-gray-900 placeholder-gray-500 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-          />
-
-          <Button
-            onClick={handleSendMessage}
-            disabled={isLoading || (!input.trim() && !selectedFile)}
-          >
-            Send
-          </Button>
-        </div>
-
-        <p className="text-xs text-gray-500 mt-2">
-          Press Enter to send, Shift+Enter for new line
-        </p>
+        {mode === 'search' && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="text-4xl mb-4">🔍</div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                Search Assessments
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Use the search box in the Previous Assessments panel
+              </p>
+              <Button
+                onClick={() => setMode('menu')}
+              >
+                ← Back to Menu
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

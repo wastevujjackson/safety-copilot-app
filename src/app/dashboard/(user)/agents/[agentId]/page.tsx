@@ -203,7 +203,7 @@ export default function AgentDetailPage() {
                 setFormData({});
                 fetchOutputs();
               }}
-              onModeChange={(mode) => {
+              onModeChange={(mode: 'menu' | 'create' | 'search' | 'review') => {
                 if (mode === 'create') {
                   setCreateMode(true);
                   // Set initial empty state to show the preview structure
@@ -217,7 +217,7 @@ export default function AgentDetailPage() {
                   setCreateMode(false);
                 }
               }}
-              onDataUpdate={(data) => {
+              onDataUpdate={(data: any) => {
                 console.log('[AgentPage] Updating form data:', data);
                 setFormData(data);
               }}

@@ -16,6 +16,12 @@ import {
 import {
   getSubstancesRequiringSurveillance,
 } from '@/lib/coshh/health-surveillance-requirements';
+import {
+  searchProcessHazards,
+  getProcessHazardByName,
+  suggestProcessHazardsForTask,
+  formatProcessHazard,
+} from '@/lib/db/process-hazards';
 
 // Store workflow state in memory (in production, use Redis or database)
 const workflowStates = new Map<string, WorkflowState>();
@@ -287,7 +293,7 @@ export async function POST(
     // Get user profile
     const { data: user, error: userError } = await supabase
       .from('users')
-      .select('id, company_id')
+      .select('id, company_id, full_name')
       .eq('id', authUser.id)
       .single();
 
@@ -348,7 +354,7 @@ export async function POST(
           state.allSdsData = [sdsData];
           state.completedSteps.push('upload_sds');
           state.awaitingAdditionalSds = true; // Now ask if there are more
-          state.currentStep = 'confirm_sds';
+          state.currentStep = 'confirm_hazard';
         } else {
           // Additional SDS upload
           state.allSdsData = state.allSdsData || [state.sdsData];
@@ -419,11 +425,22 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
 
     // Handle text messages
     if (message) {
-      // Detect if user wants to create a new assessment
-      const wantsToCreate = message.toLowerCase().match(/create|new|start|begin/);
-      if (state.currentStep === 'upload_sds' && wantsToCreate && !state.sdsData) {
-        // Guide them to upload SDS
-        const response = "Great! Let's create a new COSHH assessment. Please upload the Safety Data Sheet (SDS) for the chemical substance you're assessing. I'll extract the key information automatically.\n\nYou can upload a PDF or image file (JPG, PNG) using the 📎 button below.";
+      // Update state based on user response
+      const msgLower = message.toLowerCase();
+
+      // Detect if user wants to create a new assessment from initial menu
+      const wantsToCreate = msgLower.match(/create|new|start|begin/);
+      if (state.currentStep === 'select_hazard_source' && wantsToCreate && !state.sdsData && !state.processHazards) {
+        // Show hazard type selection
+        const response = `Great! Let's create a new COSHH assessment.
+
+**What type of hazard are you assessing?**
+
+1️⃣ **Chemical product with SDS** (e.g., solvents, cleaning products, paints)
+2️⃣ **Process-generated hazard** (no SDS) - e.g., welding fumes, wood dust, silica dust
+3️⃣ **Both** - SDS chemicals AND process hazards used together
+
+Please select 1, 2, or 3.`;
 
         return NextResponse.json({
           message: response,
@@ -432,11 +449,171 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
         });
       }
 
-      // Update state based on user response
-      const msgLower = message.toLowerCase();
+      // ===== HANDLE HAZARD SOURCE SELECTION =====
+      if (state.currentStep === 'select_hazard_source') {
+        if (msgLower.includes('1') || msgLower.includes('sds') || msgLower.includes('chemical product')) {
+          state.hazardSource = 'sds';
+          state.completedSteps.push('select_hazard_source');
+          state.currentStep = 'upload_sds';
+          workflowStates.set(stateKey, state);
+
+          return NextResponse.json({
+            message: "Great! Please upload the Safety Data Sheet (SDS) using the 📎 button below.",
+            complete: false,
+            step: state.currentStep,
+          });
+        } else if (msgLower.includes('2') || msgLower.includes('process')) {
+          state.hazardSource = 'process';
+          state.completedSteps.push('select_hazard_source');
+          state.currentStep = 'select_process_hazard';
+          workflowStates.set(stateKey, state);
+
+          return NextResponse.json({
+            message: "Let's identify the process-generated hazard.\n\n**Describe the work process:**\nFor example:\n- \"Welding stainless steel\"\n- \"Cutting hardwood\"\n- \"Grinding concrete\"\n- \"Operating diesel forklift indoors\"\n- \"Mixing flour\"\n\nWhat process generates the hazard you need to assess?",
+            complete: false,
+            step: state.currentStep,
+          });
+        } else if (msgLower.includes('3') || msgLower.includes('both')) {
+          state.hazardSource = 'both';
+          state.completedSteps.push('select_hazard_source');
+          state.currentStep = 'upload_sds';
+          workflowStates.set(stateKey, state);
+
+          return NextResponse.json({
+            message: "Great! Let's start with the SDS. Please upload it using the 📎 button below.\n\nAfterwards, I'll help you identify the process hazards.",
+            complete: false,
+            step: state.currentStep,
+          });
+        }
+      }
+
+      // ===== HANDLE PROCESS HAZARD SELECTION =====
+      if (state.currentStep === 'select_process_hazard') {
+        // Check if user is done adding process hazards
+        if (state.awaitingAdditionalProcessHazard && msgLower.includes('no')) {
+          state.awaitingAdditionalProcessHazard = false;
+          state.completedSteps.push('select_process_hazard');
+          state.currentStep = 'confirm_hazard';
+          workflowStates.set(stateKey, state);
+
+          const hazardCount = state.processHazards?.length || 0;
+          const hazardNames = state.processHazards?.map(h => h.hazard_name).join(', ') || '';
+
+          return NextResponse.json({
+            message: `Perfect! This assessment will cover ${hazardCount} process hazard${hazardCount > 1 ? 's' : ''}: **${hazardNames}**.\n\nPlease confirm these are correct.`,
+            complete: false,
+            step: state.currentStep,
+          });
+        }
+
+        // Check if user wants to add another hazard
+        if (state.awaitingAdditionalProcessHazard && msgLower.includes('yes')) {
+          return NextResponse.json({
+            message: "Please describe the next process hazard.",
+            complete: false,
+            step: state.currentStep,
+          });
+        }
+
+        // Check if user is selecting a numbered option
+        if (/^\s*[1-5]\s*$/.test(message)) {
+          // User selected a number - need to retrieve from temporary storage
+          // For now, we'll handle this in the next section
+          // In production, store suggested hazards in workflow state
+        }
+
+        // Search for process hazards based on user description
+        const suggestedHazards = await suggestProcessHazardsForTask(message);
+
+        if (suggestedHazards.length === 0) {
+          return NextResponse.json({
+            message: `I couldn't find a matching process hazard for "${message}".\n\nPlease try describing it differently. Common examples:\n- Welding\n- Wood cutting/sanding\n- Stone/concrete cutting\n- Diesel vehicles indoors\n- Flour mixing`,
+            complete: false,
+            step: state.currentStep,
+          });
+        }
+
+        // If only one match, auto-select it
+        if (suggestedHazards.length === 1) {
+          const fullHazard = await getProcessHazardByName(suggestedHazards[0].hazard_name);
+
+          if (fullHazard) {
+            if (!state.processHazards) {
+              state.processHazards = [];
+            }
+            state.processHazards.push(fullHazard);
+            state.awaitingAdditionalProcessHazard = true;
+            workflowStates.set(stateKey, state);
+
+            const warnings = [];
+            if (fullHazard.is_carcinogen) warnings.push('⚠️ Carcinogen');
+            if (fullHazard.is_respiratory_sensitiser) warnings.push('⚠️ Respiratory Sensitiser');
+            if (fullHazard.is_asthmagen) warnings.push('⚠️ Asthma Hazard');
+
+            return NextResponse.json({
+              message: `Added: **${fullHazard.hazard_name}**\n${warnings.length > 0 ? warnings.join(' ') + '\n' : ''}\nWEL: ${fullHazard.wel_8hr_twa_mgm3 ? fullHazard.wel_8hr_twa_mgm3 + ' mg/m³' : 'No WEL'}\n\n**Are there any other process hazards in this assessment?** (Yes/No)`,
+              complete: false,
+              step: state.currentStep,
+            });
+          }
+        }
+
+        // Multiple matches - present list to user
+        const hazardList = suggestedHazards.slice(0, 5).map((h, idx) => {
+          const warnings = [];
+          if (h.is_carcinogen) warnings.push('⚠️ Carcinogen');
+          if (h.is_respiratory_sensitiser) warnings.push('⚠️ Resp. Sens.');
+          if (h.is_asthmagen) warnings.push('⚠️ Asthma');
+
+          return `${idx + 1}. **${h.hazard_name}**\n   Category: ${h.hazard_category}\n   WEL: ${h.wel_8hr_twa_mgm3 ? h.wel_8hr_twa_mgm3 + ' mg/m³' : 'No WEL'}\n   ${warnings.length > 0 ? warnings.join(' ') : ''}`;
+        }).join('\n\n');
+
+        // Store suggested hazards temporarily
+        state.completedSteps.push('awaiting_hazard_selection');
+        (state as any).tempSuggestedHazards = suggestedHazards.slice(0, 5);
+        workflowStates.set(stateKey, state);
+
+        return NextResponse.json({
+          message: `I found these matching hazards:\n\n${hazardList}\n\n**Which one best matches your process?** (Enter 1-${Math.min(5, suggestedHazards.length)})`,
+          complete: false,
+          step: state.currentStep,
+        });
+      }
+
+      // Handle user selecting from numbered list
+      if (state.currentStep === 'select_process_hazard' && /^\s*[1-5]\s*$/.test(message) && (state as any).tempSuggestedHazards) {
+        const selectedIndex = parseInt(message.trim()) - 1;
+        const tempHazards = (state as any).tempSuggestedHazards;
+
+        if (tempHazards && tempHazards[selectedIndex]) {
+          const selectedHazard = tempHazards[selectedIndex];
+          const fullHazard = await getProcessHazardByName(selectedHazard.hazard_name);
+
+          if (fullHazard) {
+            if (!state.processHazards) {
+              state.processHazards = [];
+            }
+            state.processHazards.push(fullHazard);
+            state.awaitingAdditionalProcessHazard = true;
+            delete (state as any).tempSuggestedHazards; // Clear temp storage
+            workflowStates.set(stateKey, state);
+
+            const warnings = [];
+            if (fullHazard.is_carcinogen) warnings.push('⚠️ Carcinogen');
+            if (fullHazard.is_respiratory_sensitiser) warnings.push('⚠️ Respiratory Sensitiser');
+            if (fullHazard.is_asthmagen) warnings.push('⚠️ Asthma Hazard');
+
+            return NextResponse.json({
+              message: `Added: **${fullHazard.hazard_name}**\n${warnings.length > 0 ? warnings.join(' ') + '\n' : ''}\nWEL: ${fullHazard.wel_8hr_twa_mgm3 ? fullHazard.wel_8hr_twa_mgm3 + ' mg/m³' : 'No WEL'}\n\n**Are there any other process hazards in this assessment?** (Yes/No)`,
+              complete: false,
+              step: state.currentStep,
+            });
+          }
+        }
+      }
 
       // Handle response to "Are there more substances?" question
-      if (state.awaitingAdditionalSds && state.currentStep === 'confirm_sds') {
+      if (state.awaitingAdditionalSds && state.currentStep === 'confirm_hazard') {
         if (msgLower.includes('yes')) {
           // User wants to upload another SDS
           state.multipleSubstances = true;
@@ -465,8 +642,8 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
         }
       }
 
-      if (state.currentStep === 'confirm_sds' && !state.awaitingAdditionalSds && (msgLower.includes('confirm') || msgLower.includes('yes') || msgLower.includes('correct'))) {
-        state.completedSteps.push('confirm_sds');
+      if (state.currentStep === 'confirm_hazard' && !state.awaitingAdditionalSds && !state.awaitingAdditionalProcessHazard && (msgLower.includes('confirm') || msgLower.includes('yes') || msgLower.includes('correct'))) {
+        state.completedSteps.push('confirm_hazard');
         state.currentStep = 'usage_details';
       }
 
@@ -766,7 +943,9 @@ If yes, please upload the additional SDS. If no, I'll proceed with the assessmen
       }
 
       // Build workflow data for preview
-      const workflowData: any = {};
+      const workflowData: any = {
+        assessorName: user.full_name,
+      };
 
       if (state.sdsData) {
         // Get all SDS data (support for multiple substances)

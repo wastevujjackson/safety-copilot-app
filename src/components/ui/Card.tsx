@@ -39,8 +39,18 @@ export function CardHeader({
   title,
   subtitle,
   action,
-  className = ''
-}: CardHeaderProps) {
+  className = '',
+  children,
+}: CardHeaderProps & { children?: ReactNode }) {
+  // If children are provided, use them instead of title/subtitle
+  if (children) {
+    return (
+      <div className={`mb-4 ${className}`}>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className={`flex items-start justify-between mb-4 ${className}`}>
       <div>
@@ -59,6 +69,20 @@ export function CardHeader({
       </div>
       {action && <div className="ml-4">{action}</div>}
     </div>
+  );
+}
+
+export function CardTitle({
+  children,
+  className = ''
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <h3 className={`text-lg font-semibold text-gray-900 ${className}`}>
+      {children}
+    </h3>
   );
 }
 

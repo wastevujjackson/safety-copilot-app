@@ -73,6 +73,19 @@ export interface ControlMeasure {
   icon: string;
 }
 
+export interface TaskRiskScoring {
+  taskName: string;
+  inhalation?: { likelihood: number; severity: number; risk: number };
+  ingestion?: { likelihood: number; severity: number; risk: number };
+  skinEyeContact?: { likelihood: number; severity: number; risk: number };
+  other?: { likelihood: number; severity: number; risk: number };
+}
+
+export interface ChemicalRiskAssessment {
+  chemicalName: string;
+  tasks: TaskRiskScoring[];
+}
+
 export interface COSHHFormData {
   title?: string;
   description?: string;
@@ -85,6 +98,7 @@ export interface COSHHFormData {
   assessorName?: string;
   hazardousSubstances?: HazardousSubstance[];
   healthSurveillanceRequirements?: HealthSurveillanceRequirement[];
+  taskRiskAssessments?: ChemicalRiskAssessment[];
   controlMeasures?: {
     riskBeforeControls?: {
       likelihood: number;
@@ -104,6 +118,10 @@ export interface COSHHFormData {
     disposalControls?: ControlMeasure[];
     firstAidControls?: ControlMeasure[];
     spillControls?: ControlMeasure[];
+  };
+  ppeRequirements?: {
+    inWorkArea?: string[];
+    handlingContainers?: string[];
   };
 }
 
@@ -168,26 +186,21 @@ export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
           </div>
         ) : (
           <>
-            {/* Assessment Title Section */}
+            {/* Assessment Header */}
             {substances.length > 0 && (
               <>
-                <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
-                  <div className="bg-cyan-700 px-4 py-3 rounded-t-lg">
-                    <h4 className="text-sm font-semibold text-white">
-                      COSHH Assessment for Working with {substances.map(s => s.name).join(', ')}
-                    </h4>
-                  </div>
-                  <div className="p-4">
-                    <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg border-2 border-gray-800 shadow-sm mb-4">
+                  <div className="bg-gray-800 px-4 py-3">
+                    <div className="grid grid-cols-4 gap-4 text-xs">
                       <div>
-                        <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Reference Number</div>
-                        <div className="text-sm text-gray-900">
-                          {data.assessmentReference || `COSHH-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`}
+                        <div className="font-bold text-white uppercase mb-1">Assessment No:</div>
+                        <div className="text-white">
+                          {data.assessmentReference || `CRA${new Date().getFullYear().toString().slice(-2)}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}`}
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Date Created</div>
-                        <div className="text-sm text-gray-900">
+                        <div className="font-bold text-white uppercase mb-1">Date:</div>
+                        <div className="text-white">
                           {formatDate(data.date) !== 'Not specified' ? formatDate(data.date) : new Date().toLocaleDateString('en-GB', {
                             day: '2-digit',
                             month: '2-digit',
@@ -196,541 +209,832 @@ export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Review Date</div>
-                        <div className="text-sm text-gray-900">
-                          {data.reviewDate ? formatDate(data.reviewDate) : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('en-GB', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                          })}
+                        <div className="font-bold text-white uppercase mb-1">Assessor:</div>
+                        <div className="text-white">
+                          {data.assessorName || 'Loading...'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-white uppercase mb-1">Approver:</div>
+                        <div className="text-white">
+                          {data.client || 'To be approved'}
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Hazardous Substances Section - Substance-specific data only */}
+                {/* Job/Tasks Section */}
                 <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
-                  <div className="bg-cyan-700 px-4 py-3 rounded-t-lg">
+                  <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
                     <h4 className="text-sm font-semibold text-white">
-                      Hazardous Substances ({substances.length})
+                      JOB/TASKS:
                     </h4>
                   </div>
-                <div className="p-4 space-y-4">
-                  {substances.map((substance, idx) => (
-                    <div key={idx} className="p-4 border border-gray-300 bg-white rounded-lg">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <h5 className="text-sm font-semibold text-gray-900 mb-1">
-                            {substance.name || 'Chemical Substance'}
-                          </h5>
-                          {substance.manufacturer && (
-                            <div className="text-xs text-gray-600">
-                              <span className="font-semibold">Manufacturer:</span> {substance.manufacturer}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* WELs in top right corner */}
-                        {(substance.workplaceExposureLimitLTEL || substance.workplaceExposureLimitSTEL) && (
-                          <div className="flex gap-2">
-                            {substance.workplaceExposureLimitLTEL && (
-                              <div className="p-2 bg-gray-50 rounded border border-gray-300">
-                                <div className="text-xs font-semibold text-gray-900">WEL (8hr TWA)</div>
-                                <div className="text-xs text-gray-600">{substance.workplaceExposureLimitLTEL}</div>
-                              </div>
-                            )}
-                            {substance.workplaceExposureLimitSTEL && (
-                              <div className="p-2 bg-gray-50 rounded border border-gray-300">
-                                <div className="text-xs font-semibold text-gray-900">WEL (15min STEL)</div>
-                                <div className="text-xs text-gray-600">{substance.workplaceExposureLimitSTEL}</div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        {/* Left Column: Pictograms in 2-col grid */}
-                        <div>
-                          {substance.hazardPictograms && substance.hazardPictograms.length > 0 && (
-                            <div>
-                              <div className="text-xs font-semibold text-gray-900 mb-2">Hazard Pictograms</div>
-                              <div className="grid grid-cols-2 gap-2">
-                                {substance.hazardPictograms.map((hazard, hIdx) => {
-                                  const hazardInfo: { [key: string]: { name: string; icon: string } } = {
-                                    'flammable': { name: 'Flammable', icon: '/Flammable.png' },
-                                    'health-hazard': { name: 'Health Hazard', icon: '/Health Hazard.png' },
-                                    'acute-toxicity': { name: 'Acute Toxicity', icon: '/Acute Toxicity.png' },
-                                    'corrosive': { name: 'Corrosive', icon: '/Corrosive.png' },
-                                    'explosives': { name: 'Explosives', icon: '/Explosives.png' },
-                                    'gas-stored': { name: 'Gas Under Pressure', icon: '/Gas Stored.png' },
-                                    'serious-health-hazard': { name: 'Serious Health Hazard', icon: '/Serious Health Hazard.png' },
-                                    'oxidising': { name: 'Oxidising', icon: '/Oxidising.png' },
-                                    'environmental-hazard': { name: 'Environmental Hazard', icon: '/Hazardous to the Environment.png' }
-                                  };
-                                  const info = hazardInfo[hazard.type];
-                                  return info ? (
-                                    <div key={hIdx} className="flex items-center gap-2 p-1.5 bg-gray-50 rounded border border-gray-300">
-                                      <img src={info.icon} alt={info.name} className="w-8 h-8 shrink-0" />
-                                      <div className="min-w-0">
-                                        <div className="text-xs font-semibold text-gray-900 leading-tight">{info.name}</div>
-                                        <div className="text-xs text-gray-600 truncate">{hazard.hazardClass}</div>
-                                      </div>
-                                    </div>
-                                  ) : null;
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Right Column: H-Phrases */}
-                        <div>
-                          {substance.hPhrases && substance.hPhrases.length > 0 && (
-                            <div>
-                              <div className="text-xs font-semibold text-gray-900 mb-2">Hazard Statements</div>
-                              <div className="space-y-1">
-                                {substance.hPhrases.map((phrase, pIdx) => (
-                                  <div key={pIdx} className="flex items-start gap-2 p-2 bg-gray-50 rounded border border-gray-300">
-                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded whitespace-nowrap ${
-                                      phrase.riskLevel === 'High' ? 'bg-red-100 text-red-800' :
-                                      phrase.riskLevel === 'Medium' ? 'bg-orange-100 text-orange-800' :
-                                      'bg-yellow-100 text-yellow-800'
-                                    }`}>
-                                      {phrase.code}
-                                    </span>
-                                    <span className="text-xs text-gray-700 flex-1">{phrase.description}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                  <div className="p-4">
+                    <div className="text-sm text-gray-900">
+                      {data.title || 'To be defined in chat workflow'}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
+
+                {/* Section 1: Product/Chemical Names */}
+                <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                  <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                    <h4 className="text-sm font-semibold text-white">
+                      1. PRODUCT/CHEMICAL NAMES
+                    </h4>
+                  </div>
+                  <div className="p-4">
+                    <div className="text-sm font-bold text-gray-900">
+                      {substances.map(s => s.name).join(', ')}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: Process/Operations */}
+                <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                  <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                    <h4 className="text-sm font-semibold text-white">
+                      2. PROCESS / OPERATIONS:
+                    </h4>
+                  </div>
+                  <div className="p-4">
+                    <div className="text-xs text-gray-900 bg-gray-100 px-4 py-3 rounded border border-gray-200">
+                      <p className="italic text-gray-700 mb-2">
+                        Process description will be generated from chat workflow based on:
+                      </p>
+                      <ul className="list-disc list-inside space-y-1 ml-2 text-gray-800">
+                        <li>Tasks identified in Section 4</li>
+                        <li>Usage information (activities, method of use, substance form)</li>
+                        <li>Environment details (confined space, ventilation, temperature)</li>
+                        <li>Duration and frequency of use</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Chemicals & Hazards Table */}
+                <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+                  <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                    <h4 className="text-sm font-semibold text-white">
+                      3. CHEMICALS & HAZARDS
+                    </h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-100 border-b-2 border-gray-300">
+                          <th className="px-3 py-2 text-left font-bold text-gray-900 border-r border-gray-300">NAME</th>
+                          <th className="px-3 py-2 text-left font-bold text-gray-900 border-r border-gray-300">SYMBOL</th>
+                          <th className="px-3 py-2 text-left font-bold text-gray-900 border-r border-gray-300">HAZARD TERM</th>
+                          <th className="px-3 py-2 text-left font-bold text-gray-900 border-r border-gray-300">HAZARD STATEMENTS</th>
+                          <th className="px-3 py-2 text-left font-bold text-gray-900">EXPOSURE LIMITS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {substances.map((substance, idx) => (
+                          <tr key={idx} className="border-b border-gray-300">
+                            <td className="px-3 py-3 border-r border-gray-300 align-top">
+                              <div className="font-bold text-gray-900">{substance.name || 'Chemical Substance'}</div>
+                              {substance.manufacturer && (
+                                <div className="text-gray-600 mt-1">(Contains: {substance.manufacturer})</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 border-r border-gray-300 align-top">
+                              {substance.hazardPictograms && substance.hazardPictograms.length > 0 && (
+                                <div className="flex flex-col items-center gap-2">
+                                  {substance.hazardPictograms.slice(0, 2).map((hazard, hIdx) => {
+                                    const hazardInfo: { [key: string]: { name: string; icon: string } } = {
+                                      'flammable': { name: 'Flammable', icon: '/Flammable.png' },
+                                      'health-hazard': { name: 'Health Hazard', icon: '/Health Hazard.png' },
+                                      'acute-toxicity': { name: 'Acute Toxicity', icon: '/Acute Toxicity.png' },
+                                      'corrosive': { name: 'Corrosive', icon: '/Corrosive.png' },
+                                      'explosives': { name: 'Explosives', icon: '/Explosives.png' },
+                                      'gas-stored': { name: 'Gas Under Pressure', icon: '/Gas Stored.png' },
+                                      'serious-health-hazard': { name: 'Serious Health Hazard', icon: '/Serious Health Hazard.png' },
+                                      'oxidising': { name: 'Oxidising', icon: '/Oxidising.png' },
+                                      'environmental-hazard': { name: 'Environmental Hazard', icon: '/Hazardous to the Environment.png' }
+                                    };
+                                    const info = hazardInfo[hazard.type];
+                                    return info ? (
+                                      <div key={hIdx} className="text-center">
+                                        <img src={info.icon} alt={info.name} className="w-12 h-12 mx-auto" />
+                                        <div className="text-xs font-bold text-gray-900 mt-1">Signal Word: {hazard.signalWord}</div>
+                                      </div>
+                                    ) : null;
+                                  })}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 border-r border-gray-300 align-top">
+                              {substance.hazardPictograms && substance.hazardPictograms.length > 0 && (
+                                <div className="space-y-1">
+                                  {substance.hazardPictograms.map((hazard, hIdx) => (
+                                    <div key={hIdx}>
+                                      <div className="font-bold text-gray-900">{hazard.hazardClass}</div>
+                                      <div className="text-gray-600">[CLP]</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 border-r border-gray-300 align-top">
+                              {substance.hPhrases && substance.hPhrases.length > 0 && (
+                                <div className="space-y-1">
+                                  {substance.hPhrases.map((phrase, pIdx) => (
+                                    <div key={pIdx} className="text-gray-900">
+                                      <span className="font-bold text-gray-900">{phrase.code}</span>: {phrase.description}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 align-top">
+                              {substance.workplaceExposureLimitSTEL && (
+                                <div className="mb-2">
+                                  <div className="font-bold text-gray-900">STEL (15mins):</div>
+                                  <div className="text-gray-900">{substance.workplaceExposureLimitSTEL}</div>
+                                </div>
+                              )}
+                              {substance.workplaceExposureLimitLTEL && (
+                                <div>
+                                  <div className="font-bold text-gray-900">LTEL (8hr):</div>
+                                  <div className="text-gray-900">{substance.workplaceExposureLimitLTEL}</div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </>
             )}
 
-            {/* Usage, Environment & Personnel - Sectioned Layout */}
+            {/* Section 2: Usage, Environment & Personnel */}
             {sharedData && (
               <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
-                <div className="bg-cyan-700 px-4 py-3 rounded-t-lg">
+                <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
                   <h4 className="text-sm font-semibold text-white">
-                    Usage, Environment & Personnel
+                    2. USAGE, ENVIRONMENT & PERSONNEL
                   </h4>
                 </div>
-                <div className="p-4 space-y-4">
-                  {/* Usage & Exposure Section */}
-                  <div>
-                    <h5 className="text-xs font-bold text-cyan-700 uppercase mb-2 pb-1 border-b border-gray-200">Usage & Exposure</h5>
-                    <div className="grid grid-cols-3 gap-x-6 gap-y-2 mt-2">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <tbody>
+                      {/* Usage & Exposure */}
+                      <tr className="bg-gray-50">
+                        <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 uppercase" colSpan={2}>Usage & Exposure</td>
+                      </tr>
                       {sharedData.activities && sharedData.activities.length > 0 && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Activities:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.activities.join(', ')}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50 w-1/4">Activities:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.activities.join(', ')}</td>
+                        </tr>
                       )}
                       {sharedData.methodOfUse && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Method of Use:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.methodOfUse}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50 w-1/4">Method of Use:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.methodOfUse}</td>
+                        </tr>
                       )}
-                      {(() => {
-                        const forms = substances.map(s => s.substanceForm).filter(Boolean);
-                        const uniqueForms = [...new Set(forms)];
-                        if (uniqueForms.length === 0) return null;
-                        if (uniqueForms.length === 1) {
-                          return (
-                            <div>
-                              <span className="text-xs font-semibold text-gray-900">Substance Form:</span>
-                              <span className="text-xs text-gray-600 ml-2">{uniqueForms[0]}</span>
-                            </div>
-                          );
-                        } else {
-                          return (
-                            <div className="col-span-3">
-                              <span className="text-xs font-semibold text-gray-900">Substance Forms:</span>
-                              <span className="text-xs text-gray-600 ml-2">
-                                {substances.map((s, idx) => (
-                                  s.substanceForm ? (
-                                    <span key={idx} className="mr-3">
-                                      <span className="font-semibold">{s.name}:</span> {s.substanceForm}
-                                    </span>
-                                  ) : null
-                                ))}
-                              </span>
-                            </div>
-                          );
-                        }
-                      })()}
                       {sharedData.exposureRoutes && sharedData.exposureRoutes.length > 0 && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Exposure Routes:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.exposureRoutes.join(', ')}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Exposure Routes:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.exposureRoutes.join(', ')}</td>
+                        </tr>
                       )}
                       {sharedData.quantityUsed && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Quantity Used:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.quantityUsed}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Quantity Used:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.quantityUsed}</td>
+                        </tr>
                       )}
                       {sharedData.frequencyOfUse && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Frequency:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.frequencyOfUse}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Frequency:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.frequencyOfUse}</td>
+                        </tr>
                       )}
                       {sharedData.durationOfUse && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Duration:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.durationOfUse}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Duration:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.durationOfUse}</td>
+                        </tr>
                       )}
-                    </div>
-                  </div>
 
-                  {/* Working Environment Section */}
-                  <div>
-                    <h5 className="text-xs font-bold text-cyan-700 uppercase mb-2 pb-1 border-b border-gray-200">Working Environment</h5>
-                    <div className="grid grid-cols-3 gap-x-6 gap-y-2 mt-2">
+                      {/* Working Environment */}
+                      <tr className="bg-gray-50">
+                        <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 uppercase" colSpan={2}>Working Environment</td>
+                      </tr>
                       {sharedData.confinedSpace !== undefined && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Confined Space:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.confinedSpace ? 'Yes' : 'No'}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50 w-1/4">Confined Space:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.confinedSpace ? 'Yes' : 'No'}</td>
+                        </tr>
                       )}
                       {sharedData.workingEnvironment && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Ventilation:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.workingEnvironment}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Ventilation:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.workingEnvironment}</td>
+                        </tr>
                       )}
                       {sharedData.temperature && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Temperature:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.temperature}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Temperature:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.temperature}</td>
+                        </tr>
                       )}
                       {sharedData.workingEnvironmentDescription && (
-                        <div className="col-span-3">
-                          <span className="text-xs font-semibold text-gray-900">Environment:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.workingEnvironmentDescription}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Environment:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.workingEnvironmentDescription}</td>
+                        </tr>
                       )}
-                    </div>
-                  </div>
 
-                  {/* Personnel & Training Section */}
-                  <div>
-                    <h5 className="text-xs font-bold text-cyan-700 uppercase mb-2 pb-1 border-b border-gray-200">Personnel & Training</h5>
-                    <div className="grid grid-cols-3 gap-x-6 gap-y-2 mt-2">
+                      {/* Personnel & Training */}
+                      <tr className="bg-gray-50">
+                        <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 uppercase" colSpan={2}>Personnel & Training</td>
+                      </tr>
                       {sharedData.whoExposed && sharedData.whoExposed.length > 0 && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Who is Exposed:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.whoExposed.join(', ')}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50 w-1/4">Who is Exposed:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.whoExposed.join(', ')}</td>
+                        </tr>
                       )}
                       {sharedData.numberOfWorkers && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Number of Workers:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.numberOfWorkers}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Number of Workers:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.numberOfWorkers}</td>
+                        </tr>
                       )}
                       {sharedData.trainingLevel && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Training Level:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.trainingLevel}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Training Level:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.trainingLevel}</td>
+                        </tr>
                       )}
                       {sharedData.trainingProvided !== undefined && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Training Provided:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.trainingProvided ? 'Yes' : 'No'}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Training Provided:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.trainingProvided ? 'Yes' : 'No'}</td>
+                        </tr>
                       )}
                       {sharedData.existingPPE && sharedData.existingPPE.length > 0 && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Existing PPE:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.existingPPE.join(', ')}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Existing PPE:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.existingPPE.join(', ')}</td>
+                        </tr>
                       )}
                       {sharedData.healthScreening !== undefined && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Health Screening:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.healthScreening ? 'Completed' : 'Not Completed'}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Health Screening:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.healthScreening ? 'Completed' : 'Not Completed'}</td>
+                        </tr>
                       )}
                       {sharedData.healthSurveillance !== undefined && (
-                        <div>
-                          <span className="text-xs font-semibold text-gray-900">Ongoing Health Surveillance:</span>
-                          <span className="text-xs text-gray-600 ml-2">{sharedData.healthSurveillance ? 'In Place' : 'Not In Place'}</span>
-                        </div>
+                        <tr>
+                          <td className="px-4 py-2 border-2 border-gray-400 font-semibold text-gray-900 bg-gray-50">Ongoing Health Surveillance:</td>
+                          <td className="px-4 py-2 border-2 border-gray-400 text-gray-900">{sharedData.healthSurveillance ? 'In Place' : 'Not In Place'}</td>
+                        </tr>
                       )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Section 4: Exposure Routes & Risk Scoring (5x5 Matrix) */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  4. EXPOSURE ROUTES & RISK SCORING (5x5 Matrix)
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="px-3 py-2 border-2 border-gray-400 font-bold text-gray-900" rowSpan={2}>EXPOSURE ROUTE</th>
+                      <th className="px-3 py-2 border-2 border-gray-400 font-bold text-gray-900 text-center" colSpan={3}>INHALATION</th>
+                      <th className="px-3 py-2 border-2 border-gray-400 font-bold text-gray-900 text-center" colSpan={3}>INGESTION</th>
+                      <th className="px-3 py-2 border-2 border-gray-400 font-bold text-gray-900 text-center" colSpan={3}>SKIN/EYE CONTACT:</th>
+                      <th className="px-3 py-2 border-2 border-gray-400 font-bold text-gray-900 text-center" colSpan={3}>OTHER:</th>
+                    </tr>
+                    <tr className="bg-gray-100">
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">LIKELY</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">SEVERITY HARM</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">RISK</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">LIKELY</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">SEVERITY HARM</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">RISK</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">LIKELY</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">SEVERITY HARM</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">RISK</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">LIKELY</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">SEVERITY HARM</th>
+                      <th className="px-2 py-1 border-2 border-gray-400 font-bold text-gray-900 text-center text-[10px]">RISK</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="bg-gray-50">
+                      <td className="px-3 py-2 border-2 border-gray-400 font-bold text-gray-900" colSpan={13}>TASKS / RISK SCORING</td>
+                    </tr>
+                    {/* Dummy data - will be populated from chat workflow */}
+                    <tr>
+                      <td className="px-3 py-2 border-2 border-gray-400 font-semibold text-gray-900">Spraying Tanks</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">5</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">2</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-yellow-400 font-bold text-gray-900">10</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">1</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">3</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-green-400 font-bold text-gray-900">3</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">5</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">4</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-red-500 font-bold text-white">20</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 border-2 border-gray-400 font-semibold text-gray-900">Mixing, Decanting & Pumping Chemicals</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">2</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">2</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-green-300 font-bold text-gray-900">4</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">1</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">3</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-green-400 font-bold text-gray-900">3</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">4</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">4</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-orange-500 font-bold text-white">16</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 border-2 border-gray-400 font-semibold text-gray-900">Handling Containers</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">1</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">2</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-green-300 font-bold text-gray-900">2</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">1</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">3</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-green-400 font-bold text-gray-900">3</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">1</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">4</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center bg-yellow-400 font-bold text-gray-900">4</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                      <td className="px-2 py-2 border-2 border-gray-400 text-center text-gray-900">-</td>
+                    </tr>
+                    <tr className="italic text-gray-700">
+                      <td className="px-3 py-2 border-2 border-gray-400" colSpan={13}>Additional tasks will be generated through chat workflow...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Section 5: Operational Controls & Precautions */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  5. OPERATIONAL CONTROLS & PRECAUTIONS
+                </h4>
+              </div>
+              <div className="p-4 space-y-2 text-xs text-gray-900">
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>Decant/Mix/Pump concentrated chemicals in outdoor/well ventilated areas only.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>Water supply readily available for emergency washes down of spills/persons. If applicable eyes wash bottles placed at plumbed stations.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>Work area / chemical drums to be suitably barriered, warning signage displayed and supervised by EPSCO preventing unauthorised access.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>Ensure spill kit is close at hand and all drains close by are identified.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>DO not discharge chemical solution to unapproved drains or water courses.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>Follow training on use and application of chemicals.</span>
+                </div>
+                <div className="text-gray-800 italic mt-3">
+                  Additional controls to be generated from P-phrases and task requirements through chat workflow
+                </div>
+              </div>
+            </div>
+
+            {/* Section 6: PPE Requirements */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  6. PPE REQUIREMENTS
+                </h4>
+              </div>
+              <div className="p-4">
+                <div className="space-y-4">
+                  {/* IN WORK AREA/HANDLING CONTAINERS (CLOSED) */}
+                  <div>
+                    <h5 className="text-xs font-bold text-gray-900 uppercase mb-2 pb-1 border-b border-gray-200">
+                      IN WORK AREA/HANDLING CONTAINERS (CLOSED):
+                    </h5>
+                    <div className="grid grid-cols-3 gap-3 mt-2">
+                      <div className="flex items-center gap-2 p-2 bg-blue-50 rounded border border-blue-200">
+                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Safety Glasses/Goggles</span>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-blue-50 rounded border border-blue-200">
+                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Chemical Resistant Gloves</span>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-blue-50 rounded border border-blue-200">
+                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Protective Coveralls</span>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-blue-50 rounded border border-blue-200">
+                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Safety Boots</span>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-800 italic mt-2">
+                      PPE requirements will be generated based on task and exposure route risk scores
+                    </div>
+                  </div>
+
+                  {/* MIXING/DECANTING/SPRAYING */}
+                  <div>
+                    <h5 className="text-xs font-bold text-gray-900 uppercase mb-2 pb-1 border-b border-gray-200">
+                      MIXING/DECANTING/SPRAYING:
+                    </h5>
+                    <div className="grid grid-cols-3 gap-3 mt-2">
+                      <div className="flex items-center gap-2 p-2 bg-orange-50 rounded border border-orange-200">
+                        <div className="w-6 h-6 bg-orange-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Full Face Shield</span>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-orange-50 rounded border border-orange-200">
+                        <div className="w-6 h-6 bg-orange-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Nitrile Gloves (Heavy Duty)</span>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-orange-50 rounded border border-orange-200">
+                        <div className="w-6 h-6 bg-orange-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Chemical Suit (Type 3/4)</span>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-orange-50 rounded border border-orange-200">
+                        <div className="w-6 h-6 bg-orange-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">RPE: A1P2 Half Mask (Face-fit tested)</span>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-orange-50 rounded border border-orange-200">
+                        <div className="w-6 h-6 bg-orange-600 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          ✓
+                        </div>
+                        <span className="text-xs text-gray-900">Chemical Resistant Boots</span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* Hazard Assessment & Controls */}
-            {substances.length > 0 && substances.some(s => s.hPhrases && s.hPhrases.length > 0) && (
-              <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
-                <div className="bg-red-700 px-4 py-3 rounded-t-lg">
-                  <h4 className="text-base font-semibold text-white">
-                    Hazard Assessment & Controls
-                  </h4>
-                </div>
-                <div className="p-4 space-y-6">
-                  {substances.map((substance, subIdx) => (
-                    substance.hPhrases && substance.hPhrases.length > 0 && (
-                      <div key={subIdx}>
-                        {substances.length > 1 && (
-                          <h5 className="text-sm font-bold text-gray-900 mb-4 pb-2 border-b border-gray-300">{substance.name}</h5>
-                        )}
-                        <div className="space-y-4">
-                          {substance.hPhrases.map((phrase, pIdx) => (
-                            <div key={pIdx} className="border-2 border-gray-300 rounded-lg overflow-hidden">
-                              {/* Hazard Header */}
-                              <div className="bg-gray-100 p-3 border-b border-gray-300">
-                                <div className="flex items-start justify-between">
-                                  <div className="flex items-start gap-3 flex-1">
-                                    <span className={`text-xs font-semibold px-2 py-1 rounded whitespace-nowrap ${
-                                      phrase.riskLevel === 'High' ? 'bg-red-100 text-red-800' :
-                                      phrase.riskLevel === 'Medium' ? 'bg-orange-100 text-orange-800' :
-                                      'bg-yellow-100 text-yellow-800'
-                                    }`}>
-                                      {phrase.code}
-                                    </span>
-                                    <span className="text-sm font-semibold text-gray-900 flex-1">{phrase.description}</span>
-                                  </div>
-                                  <span className={`text-xs font-bold px-3 py-1 rounded ml-3 ${
-                                    phrase.riskLevel === 'High' ? 'bg-red-600 text-white' :
-                                    phrase.riskLevel === 'Medium' ? 'bg-orange-500 text-white' :
-                                    'bg-yellow-500 text-white'
-                                  }`}>
-                                    {phrase.riskLevel}
-                                  </span>
-                                </div>
-                              </div>
+            {/* Section 7: Residual Risk of Exposure with Controls */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  7. RESIDUAL RISK OF EXPOSURE WITH CONTROLS
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900">INHALATION:</th>
+                      <th className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900">INGESTION:</th>
+                      <th className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900">SKIN/EYE CONTACT:</th>
+                      <th className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900">OTHER:</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-center bg-green-400 font-bold">LOW RISK</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-center bg-green-400 font-bold">LOW RISK</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-center bg-yellow-400 font-bold">MODERATE RISK</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-center font-bold">N/A</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 text-xs text-gray-600 italic bg-gray-50">
+                Calculated from task-based risk scores after controls applied
+              </div>
+            </div>
 
-                              {/* Risk Assessment */}
-                              <div className="p-3 bg-white">
-                                <div className="grid grid-cols-2 gap-3 mb-3">
-                                  {/* Before Controls */}
-                                  <div>
-                                    <div className="text-xs font-semibold text-gray-600 mb-1">Before Controls</div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex-1 h-6 bg-linear-to-r from-green-500 to-red-600 rounded relative">
-                                        <div
-                                          className="absolute top-0 h-full w-0.5 bg-gray-900"
-                                          style={{ left: '80%' }}
-                                        />
-                                      </div>
-                                      <div className="text-lg font-bold text-white bg-red-600 px-2 py-0.5 rounded text-center min-w-[40px]">
-                                        20
-                                      </div>
-                                    </div>
-                                    <div className="text-xs text-red-700 font-semibold mt-1">High Risk</div>
-                                  </div>
-
-                                  {/* After Controls */}
-                                  <div>
-                                    <div className="text-xs font-semibold text-gray-600 mb-1">After Controls</div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex-1 h-6 bg-linear-to-r from-green-500 to-red-600 rounded relative">
-                                        <div
-                                          className="absolute top-0 h-full w-0.5 bg-gray-900"
-                                          style={{ left: '20%' }}
-                                        />
-                                      </div>
-                                      <div className="text-lg font-bold text-white bg-green-600 px-2 py-0.5 rounded text-center min-w-[40px]">
-                                        5
-                                      </div>
-                                    </div>
-                                    <div className="text-xs text-green-700 font-semibold mt-1">Low Risk</div>
-                                  </div>
-                                </div>
-
-                                {/* Controls for this hazard */}
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                  <div className="text-xs font-bold text-gray-900 mb-2">Controls for this Hazard</div>
-                                  <div className="space-y-1.5">
-                                    {/* Dummy controls - in real implementation these would be filtered by hazard */}
-                                    <div className="flex items-start gap-2 p-2 bg-blue-50 rounded border border-blue-200 text-xs">
-                                      <span className="font-semibold text-blue-900 shrink-0">P260:</span>
-                                      <span className="text-gray-700">Do not breathe vapours/spray. Use Local Exhaust Ventilation (LEV)</span>
-                                    </div>
-                                    <div className="flex items-start gap-2 p-2 bg-blue-50 rounded border border-blue-200 text-xs">
-                                      <span className="font-semibold text-blue-900 shrink-0">P284:</span>
-                                      <span className="text-gray-700">Wear respiratory protection (A1P2 filters). RPE must be face-fit tested</span>
-                                    </div>
-                                    <div className="flex items-start gap-2 p-2 bg-blue-50 rounded border border-blue-200 text-xs">
-                                      <span className="font-semibold text-blue-900 shrink-0">P280:</span>
-                                      <span className="text-gray-700">Wear nitrile gloves, coveralls, safety goggles and face shield</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+            {/* Section 8: Monitoring Requirements */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  8. MONITORING REQUIREMENTS
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <tbody>
+                    <tr className="bg-gray-50">
+                      <td className="px-4 py-3 border-2 border-gray-400 font-bold text-gray-900 uppercase" colSpan={4}>
+                        EXPOSURE MONITORING REQUIRED? ("X" APPROPRIATE BOX)
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-center font-bold text-gray-900 bg-green-100 w-1/4">
+                        <div className="flex items-center justify-center gap-2">
+                          <input type="checkbox" className="w-5 h-5" checked readOnly />
+                          <span className="text-sm">YES</span>
                         </div>
-                      </div>
-                    )
-                  ))}
-                </div>
+                      </td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-center font-bold text-gray-900 w-1/4">
+                        <div className="flex items-center justify-center gap-2">
+                          <input type="checkbox" className="w-5 h-5" />
+                          <span className="text-sm">NO</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-center font-bold text-gray-900 w-1/4">
+                        <div className="flex items-center justify-center gap-2">
+                          <input type="checkbox" className="w-5 h-5" />
+                          <span className="text-sm">N/A</span>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900" colSpan={4}>
+                        <div className="font-bold mb-2">Monitoring Details:</div>
+                        <div>Hydrochloric Acid vapours in atmosphere within confined spaces can be monitored using Gastec Passive-Dosi tubes. Where spraying in confined space with Full face respirator - monitoring is not required.</div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-            )}
-
-            {/* Control Measures */}
-            {data.controlMeasures && (
-              <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
-                <div className="bg-gray-700 px-4 py-3 rounded-t-lg">
-                  <h4 className="text-base font-semibold text-white">
-                    Control Measures
-                  </h4>
-                </div>
-                <div className="p-4">
-
-                  {/* Normal Controls In Place */}
-                  {data.controlMeasures.normalControls && data.controlMeasures.normalControls.length > 0 && (
-                    <div className="mb-6">
-                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                        Controls In Place
-                      </h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        {data.controlMeasures.normalControls.map((control, idx) => (
-                          <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded border border-gray-300">
-                            <div className="shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-800">
-                              {control.code.startsWith('P') ? 'P' : control.hierarchy === 'engineering' ? 'E' : control.hierarchy === 'ppe' ? 'PPE' : 'A'}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
-                              <div className="text-xs text-gray-700">{control.description}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Storage Controls */}
-                  {data.controlMeasures.storageControls && data.controlMeasures.storageControls.length > 0 && (
-                    <div className="mb-6">
-                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                        Storage Requirements
-                      </h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        {data.controlMeasures.storageControls.map((control, idx) => (
-                          <div key={idx} className="flex items-start gap-3 p-3 bg-purple-50 rounded border border-purple-200">
-                            <div className="shrink-0 w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center text-xs font-bold text-purple-800">
-                              S
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
-                              <div className="text-xs text-gray-700">{control.description}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Handling Controls */}
-                  {data.controlMeasures.handlingControls && data.controlMeasures.handlingControls.length > 0 && (
-                    <div className="mb-6">
-                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                        Safe Handling Procedures
-                      </h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        {data.controlMeasures.handlingControls.map((control, idx) => (
-                          <div key={idx} className="flex items-start gap-3 p-3 bg-blue-50 rounded border border-blue-200">
-                            <div className="shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-800">
-                              H
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
-                              <div className="text-xs text-gray-700">{control.description}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Disposal Controls */}
-                  {data.controlMeasures.disposalControls && data.controlMeasures.disposalControls.length > 0 && (
-                    <div className="mb-6">
-                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                        Disposal Procedures
-                      </h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        {data.controlMeasures.disposalControls.map((control, idx) => (
-                          <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded border border-gray-300">
-                            <div className="shrink-0 w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-800">
-                              D
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
-                              <div className="text-xs text-gray-700">{control.description}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* First Aid Controls */}
-                  {data.controlMeasures.firstAidControls && data.controlMeasures.firstAidControls.length > 0 && (
-                    <div className="mb-6">
-                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                        First Aid Measures
-                      </h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        {data.controlMeasures.firstAidControls.map((control, idx) => (
-                          <div key={idx} className="flex items-start gap-3 p-3 bg-green-50 rounded border border-green-200">
-                            <div className="shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-xs font-bold text-green-800">
-                              FA
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
-                              <div className="text-xs text-gray-700">{control.description}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Spill Response Controls */}
-                  {data.controlMeasures.spillControls && data.controlMeasures.spillControls.length > 0 && (
-                    <div>
-                      <h5 className="text-sm font-bold text-gray-900 mb-3 pb-2 border-b border-gray-200">
-                        Spill Response Procedures
-                      </h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        {data.controlMeasures.spillControls.map((control, idx) => (
-                          <div key={idx} className="flex items-start gap-3 p-3 bg-orange-50 rounded border border-orange-200">
-                            <div className="shrink-0 w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center text-xs font-bold text-orange-800">
-                              SP
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-gray-900 mb-1">{control.code}</div>
-                              <div className="text-xs text-gray-700">{control.description}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div className="p-3 text-xs text-gray-800 italic bg-gray-50">
+                To be generated based on substance properties, WELs, and confined space work
               </div>
-            )}
+            </div>
+
+            {/* Section 9: Resultant Risks */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  9. RESULTANT RISKS
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <tbody>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 w-1/4 uppercase">Equipment/Hose Failure</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Splitting of hoses and leaking valves. Equipment all undergoes regular periodic maintenance and inspection, with EPSCO personnel trained in equipment maintenance. All equipment inspected prior to dispatch and prior to use.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Slips, Trips or Falls</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Could result in unplanned, unexpected contact with chemical. Ensure work area is kept clear, well-lit, and free from trip hazards.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Human Error</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Operative accidentally spills chemical drum/tub, or discharges contrary to guidance, consent and training. Ensure all personnel are adequately trained and supervised.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 text-xs text-gray-800 italic bg-gray-50">
+                Additional risks to be identified through chat workflow based on tasks and environment
+              </div>
+            </div>
+
+            {/* Section 10: First Aid */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  10. FIRST AID
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <tbody>
+                    <tr className="bg-yellow-50">
+                      <td className="px-4 py-3 border-2 border-gray-400 font-bold text-gray-900" colSpan={2}>
+                        In all cases of contact with the product call for immediate assistance from the designated First Aider.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 w-1/4 uppercase">General Advice</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Take off dirty, soaked clothing immediately. In case of accident or illness contact a doctor immediately, if possible show safety data sheet.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Skin Contact</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Remove any contaminated clothing and/or PPE and rinse immediately with water. If burns have resulted consult a doctor.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Eye Contact</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Rinse immediately and thoroughly for 10-15 minutes with water while holding eye lids open. Consult a doctor.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Ingestion</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Wash out mouth and drink plenty of water. Do not induce vomiting, consult a doctor.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Inhalation</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Provide fresh air. Consult a doctor in case of illness. Where person is unconscious use artificial respiration but do not give mouth to mouth.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 text-xs text-gray-800 italic bg-gray-50">
+                First aid measures extracted from SDS Section 4
+              </div>
+            </div>
+
+            {/* Section 11: Fire */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  11. FIRE
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <tbody>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 w-1/4 uppercase">Flammability</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        <div className="font-bold mb-1">ALL products are non-flammable</div>
+                        <div className="text-red-600 font-semibold">However: May release oxygen during decomposition which will support fire.</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Fire Fighting</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Self-contained breathing apparatus (BA) and protective suit required.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Extinguishing Media</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Foam, Dry Powder, <span className="font-bold text-red-600">WATER*</span> (see warnings below)
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Hazardous Combustion Products</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        <div className="space-y-1">
+                          <div>• <span className="font-bold">EPSOLVE D1 and EPSOLVE HD1:</span> Hydrogen Chloride</div>
+                          <div>• <span className="font-bold">EPSOLVE D2:</span> Oxygen</div>
+                          <div>• <span className="font-bold">MICROSOLVE 3:</span> Alkali mist</div>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr className="bg-red-50">
+                      <td className="px-4 py-3 border-2 border-red-400 font-bold text-red-600 uppercase" colSpan={2}>
+                        <div className="space-y-1">
+                          <div>⚠ *USE WATER ONLY WHERE MICROSOLVE 1 IS PRESENT!</div>
+                          <div>⚠ DO NOT USE WATER WHERE MICROSOLVE 3 IS PRESENT!</div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 text-xs text-gray-800 italic bg-gray-50">
+                Fire information extracted from SDS Section 5
+              </div>
+            </div>
+
+            {/* Section 12: Environment */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  12. ENVIRONMENT
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <tbody>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 w-1/4 uppercase">Environmental Hazards</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Readily biodegradable in water. Do not allow to enter water courses in large volumes or neat form as may cause acidification. Does not encourage Bio-accumulation but may harm sewerage network.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Method of Disposal</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Can be disposed of observing local legislation, where appropriate diluting and neutralizing to approx. pH 7. Neutralize using MICROSOLVE 3.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Spillage Procedures</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Block surface water drains. Use absorbents - inert material such as gravel/sand to mop up spillages involving EPSOLVE D2. Dilute with plenty of water. Materials should be disposed of as special waste using a licensed contractor.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 bg-gray-50 uppercase">Packaging Disposal</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        Should be cleaned thoroughly using water. DISPOSABLE drums are to be returned for recycling/disposal by licensed contractor. Recommended Cleaning Agent: Water
+                      </td>
+                    </tr>
+                    <tr className="bg-red-50">
+                      <td className="px-4 py-3 border-2 border-red-400 font-bold text-red-600 uppercase" colSpan={2}>
+                        ⚠ Un-cleaned packaging should be considered hazardous/special waste.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 text-xs text-gray-800 italic bg-gray-50">
+                Environmental information extracted from SDS Sections 12 & 13
+              </div>
+            </div>
+
+            {/* Section 13: Storage and Handling */}
+            <div className="bg-white rounded-lg border border-gray-300 shadow-sm mb-4">
+              <div className="bg-gray-800 px-4 py-3 rounded-t-lg">
+                <h4 className="text-sm font-semibold text-white">
+                  13. STORAGE AND HANDLING
+                </h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <tbody>
+                    <tr className="bg-gray-50">
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 uppercase w-1/4">Storage Requirements:</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        <div className="space-y-1">
+                          <div>• Store in original containers with labels intact</div>
+                          <div>• Keep containers tightly closed when not in use</div>
+                          <div>• Store in cool, dry, well-ventilated area away from heat sources and direct sunlight</div>
+                          <div>• Keep away from incompatible materials (acids, alkalis, oxidizing agents)</div>
+                          <div>• Store in designated chemical storage area with appropriate signage</div>
+                          <div>• Ensure storage area has bund/containment for spills</div>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 border-2 border-gray-400 font-bold text-gray-900 uppercase bg-gray-50">Handling Precautions:</td>
+                      <td className="px-4 py-3 border-2 border-gray-400 text-gray-900">
+                        <div className="space-y-1">
+                          <div>• Handle containers with care - avoid dropping or rough handling</div>
+                          <div>• Ensure containers are properly labeled and dated</div>
+                          <div>• Use mechanical handling equipment where appropriate</div>
+                          <div>• Inspect containers for damage or leaks before handling</div>
+                          <div>• Follow COSHH safe systems of work at all times</div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 text-xs text-gray-800 italic bg-gray-50">
+                Storage and handling requirements to be extracted from SDS Section 7 and customized based on workplace conditions
+              </div>
+            </div>
 
             {/* Health Surveillance Requirements */}
             {data.healthSurveillanceRequirements && data.healthSurveillanceRequirements.length > 0 && (
