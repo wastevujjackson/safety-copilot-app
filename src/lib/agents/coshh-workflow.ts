@@ -13,7 +13,10 @@ export type WorkflowStep =
 
 export interface WorkflowState {
   currentStep: WorkflowStep;
-  sdsData?: SDSExtractionResult;
+  sdsData?: SDSExtractionResult; // Primary/first SDS for backward compatibility
+  allSdsData?: SDSExtractionResult[]; // All uploaded SDS documents
+  multipleSubstances?: boolean; // Whether this assessment involves multiple substances
+  awaitingAdditionalSds?: boolean; // Waiting for user to upload more SDS
   usageData?: {
     purpose: string;
     quantity: string;
@@ -157,7 +160,7 @@ export function getNextStep(state: WorkflowState): WorkflowStep {
  * Check if SDS data indicates inhalation hazard
  */
 function hasInhalationHazard(state: WorkflowState): boolean {
-  if (!state.sdsData?.hazards) return false;
+  const allSds = state.allSdsData || (state.sdsData ? [state.sdsData] : []);
 
   const inhalationKeywords = [
     'respiratory',
@@ -170,9 +173,11 @@ function hasInhalationHazard(state: WorkflowState): boolean {
     'aerosol',
   ];
 
-  return state.sdsData.hazards.some((hazard) =>
-    inhalationKeywords.some((keyword) =>
-      hazard.type.toLowerCase().includes(keyword)
+  return allSds.some(sds =>
+    sds.hazards?.some((hazard) =>
+      inhalationKeywords.some((keyword) =>
+        hazard.type.toLowerCase().includes(keyword)
+      )
     )
   );
 }
@@ -183,7 +188,8 @@ function hasInhalationHazard(state: WorkflowState): boolean {
 export function isStepComplete(state: WorkflowState): boolean {
   switch (state.currentStep) {
     case 'upload_sds':
-      return !!state.sdsData;
+      // Complete when we have at least one SDS and user has indicated no more uploads needed
+      return !!state.sdsData && !state.awaitingAdditionalSds;
 
     case 'confirm_sds':
       return !!state.sdsData && state.completedSteps.includes('confirm_sds');

@@ -132,18 +132,8 @@ export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
     );
   }
 
-  const substance = data.hazardousSubstances?.[0];
-  const hasAnyData = data.title || data.assessorName || substance;
-
-  const preControl = substance?.preControlRiskLevel ? {
-    level: substance.preControlRiskLevel,
-    ...getRiskLevelStyling(substance.preControlRiskLevel)
-  } : null;
-
-  const postControl = (substance?.residualRiskLevel || substance?.preControlRiskLevel) ? {
-    level: substance?.residualRiskLevel || substance?.preControlRiskLevel!,
-    ...getRiskLevelStyling(substance?.residualRiskLevel || substance?.preControlRiskLevel)
-  } : null;
+  const substances = data.hazardousSubstances || [];
+  const hasAnyData = data.title || data.assessorName || substances.length > 0;
 
   return (
     <div className="h-full overflow-y-auto bg-white border border-gray-200 rounded-lg">
@@ -228,8 +218,28 @@ export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
               </div>
             </div>
 
-            {/* Substance Header with Risk Assessment */}
-            {substance && (
+            {/* Hazardous Substances */}
+            {substances.map((substance, substanceIndex) => {
+              const preControl = substance?.preControlRiskLevel ? {
+                level: substance.preControlRiskLevel,
+                ...getRiskLevelStyling(substance.preControlRiskLevel)
+              } : null;
+
+              const postControl = (substance?.residualRiskLevel || substance?.preControlRiskLevel) ? {
+                level: substance?.residualRiskLevel || substance?.preControlRiskLevel!,
+                ...getRiskLevelStyling(substance?.residualRiskLevel || substance?.preControlRiskLevel)
+              } : null;
+
+              return (
+              <div key={substanceIndex} className="space-y-4">
+                {/* Substance Header */}
+                {substances.length > 1 && (
+                  <div className="bg-gradient-to-r from-cyan-600 to-cyan-500 px-3 py-2 rounded">
+                    <h4 className="text-sm font-bold text-white uppercase tracking-wide">
+                      Substance {substanceIndex + 1} of {substances.length}
+                    </h4>
+                  </div>
+                )}
               <>
                 <div className="bg-white p-3 border-l-4 border-cyan-500 shadow-sm rounded">
                   <div className="grid grid-cols-[2fr_1fr] gap-3">
@@ -699,7 +709,9 @@ export function COSHHFormPreview({ data }: COSHHFormPreviewProps) {
                   </div>
                 )}
               </>
-            )}
+              </div>
+            );
+            })}
           </>
         )}
       </div>

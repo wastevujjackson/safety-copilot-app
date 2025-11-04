@@ -130,7 +130,7 @@ export async function POST(
     let state = workflowStates.get(stateKey) || initializeWorkflow();
 
     // Handle file upload (SDS)
-    if (file && state.currentStep === 'upload_sds') {
+    if (file && (state.currentStep === 'upload_sds' || state.awaitingAdditionalSds)) {
       try {
         let sdsData;
 
@@ -148,11 +148,37 @@ export async function POST(
           sdsData = await extractSDSData(base64, file.type);
         }
 
-        state.sdsData = sdsData;
-        state.completedSteps.push('upload_sds');
-        state.currentStep = 'confirm_sds';
+        // Initialize or update SDS arrays
+        if (!state.sdsData) {
+          // First SDS upload
+          state.sdsData = sdsData;
+          state.allSdsData = [sdsData];
+          state.completedSteps.push('upload_sds');
+          state.awaitingAdditionalSds = true; // Now ask if there are more
+          state.currentStep = 'confirm_sds';
+        } else {
+          // Additional SDS upload
+          state.allSdsData = state.allSdsData || [state.sdsData];
+          state.allSdsData.push(sdsData);
+          state.awaitingAdditionalSds = true; // Ask again if there are more
+        }
 
         workflowStates.set(stateKey, state);
+
+        // Build list of all substances for preview
+        const allSubstances = (state.allSdsData || [state.sdsData]).filter(Boolean).map(sds => ({
+          name: sds.chemicalName,
+          manufacturer: sds.supplier,
+          hazards: sds.hazards.map(h => h.type),
+          hazardPictograms: sds.hazards,
+          hPhrases: DUMMY_H_PHRASES,
+          pPhrases: DUMMY_P_PHRASES,
+          workplaceExposureLimitLTEL: sds.exposureLimits?.[0]?.welLongTerm,
+          workplaceExposureLimitSTEL: sds.exposureLimits?.[0]?.welShortTerm,
+          firstAid: sds.firstAid,
+          firefighting: DUMMY_FIREFIGHTING,
+          storageRequirements: sds.storageRequirements,
+        }));
 
         // Generate confirmation message
         const confirmationMessage = `Great! I've extracted the following information from the SDS:
@@ -173,28 +199,18 @@ ${sdsData.exposureLimits
     : ''
 }
 
-Please confirm this information is correct, or let me know what needs to be corrected.`;
+${allSubstances.length > 1 ? `\n**Total substances uploaded:** ${allSubstances.length}\n` : ''}
+
+**Are there any other substances used simultaneously with ${sdsData.chemicalName}?** (Yes/No)
+
+If yes, please upload the additional SDS. If no, I'll proceed with the assessment.`;
 
         return NextResponse.json({
           message: confirmationMessage,
           complete: false,
           step: state.currentStep,
           workflowData: {
-            hazardousSubstances: [
-              {
-                name: sdsData.chemicalName,
-                manufacturer: sdsData.supplier,
-                hazards: sdsData.hazards.map(h => h.type),
-                hazardPictograms: sdsData.hazards,
-                hPhrases: DUMMY_H_PHRASES,
-                pPhrases: DUMMY_P_PHRASES,
-                workplaceExposureLimitLTEL: sdsData.exposureLimits?.[0]?.welLongTerm,
-                workplaceExposureLimitSTEL: sdsData.exposureLimits?.[0]?.welShortTerm,
-                firstAid: sdsData.firstAid,
-                firefighting: DUMMY_FIREFIGHTING,
-                storageRequirements: sdsData.storageRequirements,
-              }
-            ]
+            hazardousSubstances: allSubstances
           }
         });
       } catch (error) {
@@ -225,7 +241,38 @@ Please confirm this information is correct, or let me know what needs to be corr
 
       // Update state based on user response
       const msgLower = message.toLowerCase();
-      if (state.currentStep === 'confirm_sds' && (msgLower.includes('confirm') || msgLower.includes('yes') || msgLower.includes('correct'))) {
+
+      // Handle response to "Are there more substances?" question
+      if (state.awaitingAdditionalSds && state.currentStep === 'confirm_sds') {
+        if (msgLower.includes('yes')) {
+          // User wants to upload another SDS
+          state.multipleSubstances = true;
+          workflowStates.set(stateKey, state);
+
+          return NextResponse.json({
+            message: "Please upload the SDS for the next substance using the 📎 button.",
+            complete: false,
+            step: state.currentStep,
+          });
+        } else if (msgLower.includes('no')) {
+          // User is done uploading, proceed with workflow
+          state.awaitingAdditionalSds = false;
+          state.multipleSubstances = (state.allSdsData?.length || 0) > 1;
+
+          const substanceCount = state.allSdsData?.length || 1;
+          const substanceNames = state.allSdsData?.map(sds => sds.chemicalName).join(', ') || state.sdsData?.chemicalName || '';
+
+          workflowStates.set(stateKey, state);
+
+          return NextResponse.json({
+            message: `Perfect! This assessment will cover ${substanceCount} substance${substanceCount > 1 ? 's' : ''}: **${substanceNames}**.\n\nPlease confirm the extracted information is correct, and we'll proceed with gathering usage details.`,
+            complete: false,
+            step: state.currentStep,
+          });
+        }
+      }
+
+      if (state.currentStep === 'confirm_sds' && !state.awaitingAdditionalSds && (msgLower.includes('confirm') || msgLower.includes('yes') || msgLower.includes('correct'))) {
         state.completedSteps.push('confirm_sds');
         state.currentStep = 'usage_details';
       }
@@ -517,46 +564,47 @@ Please confirm this information is correct, or let me know what needs to be corr
       const workflowData: any = {};
 
       if (state.sdsData) {
-        workflowData.hazardousSubstances = [
-          {
-            name: state.sdsData.chemicalName,
-            manufacturer: state.sdsData.supplier,
-            hazards: state.sdsData.hazards?.map(h => h.type),
-            hazardPictograms: state.sdsData.hazards,
-            hPhrases: DUMMY_H_PHRASES,
-            pPhrases: DUMMY_P_PHRASES,
-            workplaceExposureLimitLTEL: state.sdsData.exposureLimits?.[0]?.welLongTerm,
-            workplaceExposureLimitSTEL: state.sdsData.exposureLimits?.[0]?.welShortTerm,
-            // Add usage data fields if available
-            howUsed: state.usageData?.purpose,
-            quantityUsed: state.usageData?.quantity,
-            frequencyOfUse: state.usageData?.frequency,
-            durationOfUse: state.usageData?.duration,
-            activities: state.usageData?.activities,
-            methodOfUse: state.usageData?.methodOfUse,
-            exposureRoutes: state.usageData?.exposureRoutes,
-            substanceForm: state.usageData?.substanceForm,
-            location: state.environmentData?.location || state.usageData?.location,
-            // Add environment data fields
-            workingEnvironment: state.environmentData?.ventilation,
-            workingEnvironmentDescription: state.environmentData?.workingEnvironmentDescription,
-            temperature: state.environmentData?.temperature,
-            confinedSpace: state.environmentData?.confinedSpace,
-            // Add worker data fields
-            whoExposed: state.workerData?.whoExposed,
-            numberOfWorkers: state.workerData?.numberOfWorkers,
-            trainingLevel: state.workerData?.trainingLevel,
-            trainingProvided: state.workerData?.trainingProvided,
-            existingPPE: state.workerData?.existingPPE,
-            healthSurveillance: state.workerData?.healthSurveillance,
-            // Add SDS safety information
-            firstAid: state.sdsData.firstAid,
-            firefighting: DUMMY_FIREFIGHTING,
-            storageRequirements: state.sdsData.storageRequirements,
-            // Add other fields
-            controlMeasures: state.controlMeasures || [],
-          }
-        ];
+        // Get all SDS data (support for multiple substances)
+        const allSds = state.allSdsData || [state.sdsData];
+
+        workflowData.hazardousSubstances = allSds.map(sdsData => ({
+          name: sdsData.chemicalName,
+          manufacturer: sdsData.supplier,
+          hazards: sdsData.hazards?.map(h => h.type),
+          hazardPictograms: sdsData.hazards,
+          hPhrases: DUMMY_H_PHRASES,
+          pPhrases: DUMMY_P_PHRASES,
+          workplaceExposureLimitLTEL: sdsData.exposureLimits?.[0]?.welLongTerm,
+          workplaceExposureLimitSTEL: sdsData.exposureLimits?.[0]?.welShortTerm,
+          // Add usage data fields if available (same for all substances in this assessment)
+          howUsed: state.usageData?.purpose,
+          quantityUsed: state.usageData?.quantity,
+          frequencyOfUse: state.usageData?.frequency,
+          durationOfUse: state.usageData?.duration,
+          activities: state.usageData?.activities,
+          methodOfUse: state.usageData?.methodOfUse,
+          exposureRoutes: state.usageData?.exposureRoutes,
+          substanceForm: state.usageData?.substanceForm,
+          location: state.environmentData?.location || state.usageData?.location,
+          // Add environment data fields (same for all substances)
+          workingEnvironment: state.environmentData?.ventilation,
+          workingEnvironmentDescription: state.environmentData?.workingEnvironmentDescription,
+          temperature: state.environmentData?.temperature,
+          confinedSpace: state.environmentData?.confinedSpace,
+          // Add worker data fields (same for all substances)
+          whoExposed: state.workerData?.whoExposed,
+          numberOfWorkers: state.workerData?.numberOfWorkers,
+          trainingLevel: state.workerData?.trainingLevel,
+          trainingProvided: state.workerData?.trainingProvided,
+          existingPPE: state.workerData?.existingPPE,
+          healthSurveillance: state.workerData?.healthSurveillance,
+          // Add SDS safety information (specific to each substance)
+          firstAid: sdsData.firstAid,
+          firefighting: DUMMY_FIREFIGHTING,
+          storageRequirements: sdsData.storageRequirements,
+          // Add other fields
+          controlMeasures: state.controlMeasures || [],
+        }));
       }
 
       return NextResponse.json({
